@@ -1,0 +1,25 @@
+# ===== 安克耳机语音识别项目依赖 =====
+# 建议 Python 3.9 ~ 3.11
+
+# 深度学习框架（CPU 版即可跑通；有 NVIDIA 显卡可换 CUDA 版）
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# WeNet 训练/推理库。若 pip 装的版本不含训练入口(wenet.bin.train)，
+# 请按 README 2.4「方式A」从 GitHub clone 后 `pip install -e .`
+wenet
+
+# 语音合成：自动生成训练用的「安克指令」语音
+edge-tts>=6.1.0
+
+# 音频读写 / 处理
+soundfile>=0.12.1
+numpy>=1.23
+librosa>=0.10.0
+
+# 麦克风实时识别 demo 用（infer_demo.py --mic）
+sounddevice>=0.4.6
+
+# 进度条 / 工具
+tqdm>=4.65
+pyyaml>=6.0
