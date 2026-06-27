@@ -8,6 +8,7 @@
 > 模型：**WeNet 框架 + U2++ 架构**（Conformer 编码器 + CTC/Attention 联合训练 +
 > **双向注意力解码器**（bitransformer）+ Attention Rescoring 重打分），支持流式 / 非流式统一识别。
 
+测试实验
 ---
 
 ## 0. 这个项目能学到什么（写进报告正好）
