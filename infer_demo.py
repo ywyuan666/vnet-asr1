@@ -33,7 +33,7 @@ def record_from_mic(seconds, out_wav):
     import sounddevice as sd
     import soundfile as sf
     fs = 16000
-    print(f"🎤 开始录音 {seconds} 秒，请说出安克指令（如「打开降噪」）...")
+    print(f"🎤 开始录音 {seconds} 秒，请说出语音指令（如「打开降噪」）...")
     audio = sd.rec(int(seconds * fs), samplerate=fs, channels=1, dtype="int16")
     sd.wait()
     sf.write(out_wav, audio, fs, subtype="PCM_16")

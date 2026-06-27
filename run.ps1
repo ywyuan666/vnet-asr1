@@ -1,5 +1,5 @@
 # ============================================================
-#  run.ps1  —  安克耳机语音识别 一键脚本 (Windows PowerShell)
+#  run.ps1  —  耳机语音识别 一键脚本 (Windows PowerShell)
 # ------------------------------------------------------------
 #  用法：
 #     .\run.ps1                 # 从头跑到尾
@@ -22,8 +22,8 @@ function Section($n, $msg) { Write-Host "`n==== Stage $n : $msg ====" -Foregroun
 
 # -------- Stage 0: 合成数据 --------
 if ($Stage -le 0 -and $Stop -ge 0) {
-    Section 0 "用 TTS 合成安克指令语音数据集"
-    python local/generate_anker_corpus.py --out data/audio --repeat $Repeat
+    Section 0 "用 TTS 合成语音指令数据集"
+    python local/generate_corpus.py --out data/audio --repeat $Repeat
 }
 
 # -------- Stage 1: 准备数据清单 + 字典 --------

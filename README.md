@@ -1,8 +1,8 @@
-# 安克耳机语音指令识别系统（WeNet · U2++ Conformer）
+# 耳机语音指令识别系统（WeNet · U2++ Conformer）
 
 > 一份**小白友好**、可**一键跑通**的端到端中文语音识别大作业 / 课程项目。
 >
-> 主题：为「安克（Anker）耳机」做一个**语音助手指令识别**模型，能听懂诸如
+> 主题：为蓝牙耳机做一个**语音助手指令识别**模型，能听懂诸如
 > 「下一首」「打开降噪」「接听电话」「调高音量」等中文语音命令。
 >
 > 模型：**WeNet 框架 + U2++ 架构**（Conformer 编码器 + CTC/Attention 联合训练 +
@@ -29,13 +29,13 @@
 ## 1. 目录结构
 
 ```
-anker-asr-wenet/
+earphone-asr-wenet/
 ├── README.md                       # 你正在看的总教程
 ├── requirements.txt                # Python 依赖
 ├── conf/
 │   └── train_u2pp_conformer.yaml   # ⭐ U2++ Conformer 训练配置（核心）
 ├── local/
-│   ├── generate_anker_corpus.py    # ⭐ 用 TTS 自动合成「安克指令」语音数据集
+│   ├── generate_anker_corpus.py    # ⭐ 用 TTS 自动合成语音指令数据集
 │   └── prepare_data.py             # 生成 WeNet 需要的 data.list 与字典
 ├── tools/
 │   └── make_cmvn.py                # 计算特征归一化(CMVN)统计量
@@ -75,7 +75,7 @@ anker-asr-wenet/
 
 ```powershell
 # 进入项目目录
-cd C:\Users\ywyuan\Desktop\anker-asr-wenet
+cd C:\Users\ywyuan\Desktop\earphone-asr-wenet
 
 # （可选但强烈推荐）建一个虚拟环境
 python -m venv .venv
@@ -121,13 +121,13 @@ python -m wenet.bin.train --help
 
 Windows（PowerShell）：
 ```powershell
-cd C:\Users\ywyuan\Desktop\anker-asr-wenet
+cd C:\Users\ywyuan\Desktop\earphone-asr-wenet
 .\run.ps1
 ```
 
 Linux / Mac / WSL：
 ```bash
-cd anker-asr-wenet
+cd earphone-asr-wenet
 bash run.sh
 ```
 
@@ -135,7 +135,7 @@ bash run.sh
 
 | Stage | 做什么 |
 | --- | --- |
-| 0 | 用 TTS 合成「安克指令」语音数据集（生成 wav） |
+| 0 | 用 TTS 合成语音指令数据集（生成 wav） |
 | 1 | 准备 WeNet 数据清单 `data.list`、生成字典 `units.txt` |
 | 2 | 计算 CMVN（特征均值方差，用于归一化） |
 | 3 | **训练 U2++ Conformer 模型** |
@@ -150,8 +150,8 @@ bash run.sh
 ```powershell
 python local/generate_anker_corpus.py --out data/audio --repeat 1
 ```
-- 它会用多个**不同发音人**把每条安克指令合成成 wav（16k、单声道）。
-- 指令清单写在脚本顶部的 `ANKER_COMMANDS`，你可以**自由增删**（增删后字典会自动更新）。
+- 它会用多个**不同发音人**把每条语音指令合成成 wav（16k、单声道）。
+- 指令清单写在脚本顶部的 `COMMANDS`，你可以**自由增删**（增删后字典会自动更新）。
 - 想要更多数据：把 `--repeat` 调大，会叠加不同语速/音调的版本。
 
 ### Stage 1：准备 WeNet 数据

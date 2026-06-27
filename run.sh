@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================
-#  run.sh  —  安克耳机语音识别 一键脚本 (Linux / Mac / WSL)
+#  run.sh  —  耳机语音识别 一键脚本 (Linux / Mac / WSL)
 # ------------------------------------------------------------
 #  用法：
 #     bash run.sh                 # 从头跑到尾
@@ -21,8 +21,8 @@ echo_stage() { echo -e "\n==== Stage $1 : $2 ===="; }
 
 # Stage 0: 合成数据
 if [ ${stage} -le 0 ] && [ ${stop_stage} -ge 0 ]; then
-    echo_stage 0 "用 TTS 合成安克指令语音数据集"
-    python local/generate_anker_corpus.py --out data/audio --repeat ${repeat}
+    echo_stage 0 "用 TTS 合成语音指令数据集"
+    python local/generate_corpus.py --out data/audio --repeat ${repeat}
 fi
 
 # Stage 1: 准备数据

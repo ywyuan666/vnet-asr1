@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-generate_anker_corpus.py
+generate_corpus.py
 ========================
-用微软 edge-tts（在线神经网络语音合成）自动生成「安克(Anker)耳机语音指令」数据集。
+用微软 edge-tts（在线神经网络语音合成）自动生成「耳机语音指令」数据集。
 
 为什么这么做？
   小白通常没有现成的语音数据集，也没条件大量录音。
@@ -16,7 +16,7 @@ generate_anker_corpus.py
 依赖：edge-tts、ffmpeg（用于把 mp3 转 16k 单声道 wav）
 
 用法：
-  python local/generate_anker_corpus.py --out data/audio --repeat 1
+  python local/generate_corpus.py --out data/audio --repeat 1
   --repeat 调大可生成更多（不同语速）样本
 """
 import argparse
@@ -38,9 +38,9 @@ except ImportError:
     sys.exit(1)
 
 
-# ============ 1. 安克耳机语音指令清单（可自由增删）============
+# ============ 1. 耳机语音指令清单（可自由增删）============
 # key 是英文 id（做文件名用），value 是中文标注（模型要学会识别的目标文字）
-ANKER_COMMANDS = {
+COMMANDS = {
     "next":        "下一首",
     "prev":        "上一首",
     "play":        "播放音乐",
@@ -54,7 +54,7 @@ ANKER_COMMANDS = {
     "hangup":      "挂断电话",
     "battery":     "查询电量",
     "pair":        "进入配对模式",
-    "assistant":   "你好安克",
+    "assistant":   "你好助手",
 }
 
 # ============ 2. 发音人列表（不同人声=数据多样性）============
@@ -108,7 +108,7 @@ async def main_async(args):
     meta_lines = []
     total = 0
     for r in range(args.repeat):
-        for cmd_id, text in ANKER_COMMANDS.items():
+        for cmd_id, text in COMMANDS.items():
             for voice in VOICES:
                 rate = RATES[(r + total) % len(RATES)]  # 轮换语速
                 short_voice = voice.split("-")[-1].replace("Neural", "")
@@ -141,7 +141,7 @@ async def main_async(args):
 
 
 def main():
-    p = argparse.ArgumentParser(description="生成安克耳机语音指令数据集")
+    p = argparse.ArgumentParser(description="生成耳机语音指令数据集")
     p.add_argument("--out", default="data/audio", help="输出音频目录")
     p.add_argument("--repeat", type=int, default=1,
                    help="重复轮数（每轮换语速），调大=更多数据")
