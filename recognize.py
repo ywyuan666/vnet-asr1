@@ -46,10 +46,10 @@ def edit_distance(ref, hyp):
 
 
 def run_wenet_recognize(args, result_file):
-    """调用 wenet.bin.recognize 解码，结果写入 result_file。"""
+    """调用 WeNet 解码模块，结果写入 result_file。"""
     cmd = [
         sys.executable, "-m", "wenet.bin.recognize",
-        "--gpu", "-1",
+        "--gpu", "-1",  # 使用 CPU 解码
         "--mode", args.mode,
         "--config", args.config,
         "--test_data", args.test_data,
@@ -63,8 +63,8 @@ def run_wenet_recognize(args, result_file):
         "--result_file", result_file,
         "--data_type", "raw",
     ]
-    print("执行解码命令:\n  " + " ".join(cmd))
-    subprocess.run(cmd, check=True)
+    print("执行解码...")
+    subprocess.run(cmd, check=True, capture_output=False)
 
 
 def load_refs(test_data):

@@ -2,7 +2,7 @@
 """
 prepare_data.py
 ===============
-把 generate_anker_corpus.py 生成的音频 + 标注，转换成 WeNet 训练需要的格式：
+把 generate_corpus.py 生成的音频 + 标注，转换成 WeNet 训练需要的格式：
 
   data/train/data.list   data/dev/data.list   data/test/data.list
       每行一个 JSON: {"key": "utt_xxx", "wav": "/abs/path.wav", "txt": "下一首"}
@@ -30,7 +30,7 @@ def read_metadata(audio_dir):
     meta = os.path.join(audio_dir, "metadata.tsv")
     if not os.path.exists(meta):
         raise FileNotFoundError(
-            f"未找到 {meta}，请先运行 local/generate_anker_corpus.py 生成数据")
+            f"未找到 {meta}，请先运行 local/generate_corpus.py 生成数据")
     items = []
     with open(meta, encoding="utf-8") as f:
         for line in f:
@@ -42,8 +42,8 @@ def read_metadata(audio_dir):
     return items
 
 
-def split_data(items, seed=2024):
-    """按 8:1:1 划分 train/dev/test，保证每条指令都覆盖到。"""
+def split_data(items, seed=42):
+    """按 8:1:1 划分 train/dev/test，随机打散保证数据分布均衡。"""
     random.Random(seed).shuffle(items)
     n = len(items)
     n_dev = max(1, int(n * 0.1))
@@ -101,7 +101,7 @@ def main():
     dict_path = os.path.join(args.out_dir, "dict", "units.txt")
     vocab = build_dict(items, dict_path)
     print(f"字典大小(含特殊符): {vocab}  -> {dict_path}")
-    print("数据准备完成！下一步: 计算 CMVN，然后训练。")
+    print("数据准备完成！")
 
 
 if __name__ == "__main__":

@@ -1,10 +1,9 @@
 # ============================================================
-#  U2++ Conformer 训练配置（耳机语音指令识别）
+#  U2++ Conformer 训练配置
 # ------------------------------------------------------------
-#  U2++ = Unified Streaming/Non-streaming Two-pass ++
-#  组成：Conformer 编码器 + CTC 分支 + 双向(bitransformer)注意力解码器
-#  说明：模型参数已调小，方便在 CPU / 小数据集上较快训练。
-#        想要更强效果可把 output_size / num_blocks / linear_units 调大。
+#  架构: Conformer 编码器 + CTC 分支 + 双向注意力解码器
+#  适配: CPU / 小规模数据集快速训练
+#  优化: 可调大 output_size / num_blocks / linear_units 提升效果
 # ============================================================
 
 # -------- 编码器：Conformer（自注意力 + 卷积） --------

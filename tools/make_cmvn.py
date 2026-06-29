@@ -40,11 +40,12 @@ def main():
     with open(args.data_list, encoding="utf-8") as f:
         lines = [json.loads(x) for x in f if x.strip()]
 
-    for obj in tqdm(lines, desc="计算CMVN"):
+    for obj in tqdm(lines, desc="计算CMVN统计量"):
         waveform, sr = torchaudio.load(obj["wav"])
         if sr != 16000:
-            waveform = torchaudio.transforms.Resample(sr, 16000)(waveform)
-        waveform = waveform * (1 << 15)  # kaldi fbank 期望 16bit 量级
+            resampler = torchaudio.transforms.Resample(sr, 16000)
+            waveform = resampler(waveform)
+        waveform = waveform * (1 << 15)  # 归一化到 16bit PCM 量级
         feat = kaldi.fbank(
             waveform,
             num_mel_bins=args.num_mel_bins,
