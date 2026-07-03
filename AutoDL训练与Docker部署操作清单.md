@@ -34,32 +34,56 @@ cd wenet
 
 ---
 
-## 第 2 部分：配置环境
+## 第 2 部分：配置环境（一键脚本）
+
+进入项目目录，运行一键配置脚本即可：
 
 ```bash
-# 1) 开学术加速（访问 GitHub / 微软TTS 更快）
+cd /root/autodl-tmp/wenet
+bash setup_autodl.sh
+```
+
+脚本会自动完成：开学术加速 → 检查 GPU → 装 cu128 版 PyTorch → 装项目依赖 →
+装 WeNet 训练代码 → 复核锁定 GPU 版 torch → 装 ffmpeg → 最终自检。
+
+✅ 看到 **「环境配置完成 🎉」** 即成功，脚本还会自动打印下一步的训练命令。
+
+> 💡 脚本专门规避了两个坑：① 分步安装并在最后复核，防止依赖解析把 GPU 版 torch
+> 覆盖成 CPU 版；② WeNet 源码用 `--no-deps` 安装，只取训练入口、不动 torch。
+
+<details>
+<summary>（备用）手动分步配置——脚本失败时可逐条执行</summary>
+
+```bash
+# 1) 开学术加速
 source /etc/network_turbo
 
 # 2) 确认显卡被识别
-nvidia-smi                       # 应看到 RTX 4090/5090 和显存
+nvidia-smi                       # 应看到 RTX 5090 和显存
 
-# 3) 装 PyTorch（若镜像自带可跳过；5090 必须 CUDA 12.8 版）
+# 3) 装 PyTorch（5090 必须 CUDA 12.8 版）
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # 4) 验证 GPU 可用（关键，必须打印 True）
 python -c "import torch; print('CUDA:', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0))"
 
-# 5) 装项目依赖
-pip install -r requirements.txt
+# 5) 装项目依赖（不含 torch，避免覆盖 GPU 版）
+pip install edge-tts soundfile numpy librosa sounddevice \
+            fastapi "uvicorn[standard]" python-multipart tqdm pyyaml
 
-# 6) 装 WeNet 训练代码（训练入口 wenet.bin.train 需要源码）
+# 6) 装 WeNet 训练代码（--no-deps 只取训练入口，不动 torch）
 cd /root/autodl-tmp
 git clone https://github.com/wenet-e2e/wenet.git wenet_src
-cd wenet_src && pip install -e . && cd /root/autodl-tmp/wenet
+cd wenet_src && pip install -e . --no-deps && cd /root/autodl-tmp/wenet
 
-# 7) 装 ffmpeg（TTS 音频转码用）
+# 7) 复核 GPU 版 torch（防止被降级）
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128 --upgrade
+
+# 8) 装 ffmpeg
 apt-get update && apt-get install -y ffmpeg
 ```
+
+</details>
 
 ✅ 检查点：`torch.cuda.is_available()` 打印 `True`，`python -m wenet.bin.train --help` 能出帮助。
 
