@@ -3,19 +3,22 @@
 #  run.sh  —  耳机语音识别 一键脚本 (Linux / Mac / WSL)
 # ------------------------------------------------------------
 #  用法：
-#     bash run.sh                 # 从头跑到尾
+#     bash run.sh                 # 从头跑到尾（默认 CPU 版配置）
 #     stage=3 stop_stage=3 bash run.sh   # 只跑第 3 阶段
+#     # GPU 版（AutoDL）：用更大模型 + 更多数据 + 多进程加载
+#     config=conf/train_u2pp_conformer_gpu.yaml repeat=5 num_workers=8 bash run.sh
 # ============================================================
 set -e
 
 stage=${stage:-0}
 stop_stage=${stop_stage:-5}
 repeat=${repeat:-2}
+num_workers=${num_workers:-2}
 
 exp_dir="exp/u2pp_conformer"
 dict="data/dict/units.txt"
 cmvn="data/train/global_cmvn"
-config="conf/train_u2pp_conformer.yaml"
+config=${config:-conf/train_u2pp_conformer.yaml}
 
 echo_stage() { echo -e "\n==== Stage $1 : $2 ===="; }
 
@@ -49,7 +52,7 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
         --cv_data data/dev/data.list \
         --model_dir ${exp_dir} \
         --cmvn ${cmvn} \
-        --num_workers 2 \
+        --num_workers ${num_workers} \
         --pin_memory
 fi
 
