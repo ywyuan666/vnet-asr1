@@ -1,0 +1,23 @@
+# ==============================================================================
+#  docker-compose.yml —— 一键编排：构建镜像 + 挂载模型 + 端口映射
+# ------------------------------------------------------------------------------
+#  用法：
+#    docker compose up -d          # 后台启动，浏览器打开 http://localhost:8000
+#    docker compose logs -f        # 看日志
+#    docker compose down           # 停止并删除容器
+# ==============================================================================
+services:
+  asr-demo:
+    build: .                       # 用当前目录的 Dockerfile 构建
+    image: earphone-asr-demo:latest
+    container_name: earphone-asr-demo
+    ports:
+      - "8000:8000"                # 主机8000 → 容器8000（左边是你电脑的端口）
+    volumes:
+      # 把训练好的模型 / 字典 从宿主机挂载进容器（代码与数据分离）
+      # 好处：换模型不用重建镜像，删容器模型也还在
+      - ./exp:/app/exp
+      - ./data/dict:/app/data/dict
+    environment:
+      - DECODE_MODE=attention_rescoring   # 可改 ctc_greedy_search 等
+    restart: unless-stopped        # 容器异常退出自动重启（除非手动停）

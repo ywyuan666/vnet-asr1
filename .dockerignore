@@ -1,0 +1,25 @@
+# .dockerignore —— 构建镜像时排除这些文件，减小构建上下文、加快构建、避免泄露
+# 原理：docker build 会把整个目录打包发给 daemon，这里排除的不会被发送/打进镜像
+
+.git
+.gitignore
+.vscode
+__pycache__
+*.pyc
+*.pyo
+
+# 文档类不需要进镜像
+*.pdf
+*.md
+docs/
+
+# 训练产物 / 数据：通过 volume 挂载，不打进镜像（保持镜像精简）
+exp/
+data/
+*.wav
+*.mp3
+
+# 本地虚拟环境
+.venv/
+venv/
+.DS_Store

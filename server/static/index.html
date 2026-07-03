@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>耳机语音指令识别 · Demo</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      padding: 20px; color: #1a1a1a;
+    }
+    .card {
+      background: #fff; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
+      width: 100%; max-width: 560px; padding: 34px 30px; overflow: hidden;
+    }
+    h1 { font-size: 22px; color: #12324f; text-align: center; margin-bottom: 4px; }
+    .sub { text-align: center; color: #7a8ba0; font-size: 13px; margin-bottom: 8px; }
+    .status { text-align: center; font-size: 12px; margin-bottom: 20px; }
+    .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+    .ok { background: #2ecc71; } .bad { background: #e74c3c; }
+    .cmds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 22px; }
+    .cmds span { background: #eef4fb; color: #2c5aa0; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
+    .row { display: flex; gap: 12px; margin-bottom: 16px; }
+    .btn {
+      flex: 1; border: none; border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 600;
+      cursor: pointer; transition: transform .1s, box-shadow .2s; color: #fff;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-rec { background: linear-gradient(135deg,#ff6b6b,#ee5253); }
+    .btn-rec.recording { background: linear-gradient(135deg,#c0392b,#96281b); animation: pulse 1s infinite; }
+    .btn-up { background: linear-gradient(135deg,#4b7bec,#3867d6); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
+    .drop {
+      border: 2px dashed #c3ceda; border-radius: 12px; padding: 18px; text-align: center;
+      color: #8a97a6; font-size: 13px; margin-bottom: 18px; transition: .2s;
+    }
+    .drop.over { border-color: #4b7bec; background: #f5f8ff; color: #4b7bec; }
+    .result {
+      background: #f7f9fc; border-radius: 12px; padding: 20px; min-height: 90px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    }
+    .result .label { font-size: 12px; color: #8a97a6; }
+    .result .text { font-size: 26px; font-weight: 700; color: #12324f; letter-spacing: 2px; }
+    .result .meta { font-size: 11px; color: #aab4c0; }
+    .spinner { width: 26px; height: 26px; border: 3px solid #dfe6ee; border-top-color: #4b7bec; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg) } }
+    .footer { text-align: center; font-size: 11px; color: #b0bac6; margin-top: 18px; }
+    input[type=file] { display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🎧 耳机语音指令识别</h1>
+    <p class="sub">WeNet · U2++ Conformer · 端到端中文语音识别</p>
+    <p class="status"><span id="dot" class="dot bad"></span><span id="statusText">检查模型状态…</span></p>
+
+    <div class="cmds">
+      <span>下一首</span><span>打开降噪</span><span>接听电话</span>
+      <span>调高音量</span><span>暂停播放</span><span>查询电量</span>
+    </div>
+
+    <div class="row">
+      <button id="recBtn" class="btn btn-rec">🎤 按住说话</button>
+      <button id="upBtn" class="btn btn-up">📁 上传音频</button>
+    </div>
+    <input type="file" id="fileInput" accept="audio/*" />
+
+    <div id="drop" class="drop">把 wav / mp3 音频拖到这里也可以识别</div>
+
+    <div class="result" id="result">
+      <div class="label">识别结果将显示在这里</div>
+    </div>
+
+    <p class="footer">POST /api/recognize · 真实模型推理 · 支持流式/非流式</p>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const resultBox = $("result");
+
+    // ---------- 健康检查 ----------
+    async function checkHealth() {
+      try {
+        const r = await fetch("/api/health");
+        const d = await r.json();
+        if (d.model_ready) {
+          $("dot").className = "dot ok";
+          $("statusText").textContent = "模型就绪 · 解码模式：" + d.decode_mode;
+        } else {
+          $("dot").className = "dot bad";
+          $("statusText").textContent = "模型未就绪：请先训练或挂载模型";
+        }
+      } catch (e) {
+        $("statusText").textContent = "无法连接后端";
+      }
+    }
+    checkHealth();
+
+    // ---------- 展示结果 ----------
+    function showLoading() {
+      resultBox.innerHTML = '<div class="spinner"></div><div class="label">识别中…</div>';
+    }
+    function showResult(text, meta) {
+      resultBox.innerHTML =
+        '<div class="label">识别结果</div>' +
+        '<div class="text">' + text + '</div>' +
+        '<div class="meta">' + meta + '</div>';
+    }
+    function showError(msg) {
+      resultBox.innerHTML = '<div class="label" style="color:#e74c3c">出错：' + msg + '</div>';
+    }
+
+    // ---------- 上传识别 ----------
+    async function sendAudio(blob, filename) {
+      showLoading();
+      const fd = new FormData();
+      fd.append("audio", blob, filename);
+      try {
+        const r = await fetch("/api/recognize", { method: "POST", body: fd });
+        const d = await r.json();
+        if (!r.ok) { showError(d.detail || "识别失败"); return; }
+        showResult(d.text, "耗时 " + d.elapsed_sec + "s · " + d.decode_mode);
+      } catch (e) { showError(e.message); }
+    }
+
+    // ---------- 文件上传 ----------
+    $("upBtn").onclick = () => $("fileInput").click();
+    $("fileInput").onchange = (e) => {
+      if (e.target.files[0]) sendAudio(e.target.files[0], e.target.files[0].name);
+    };
+
+    // ---------- 拖拽上传 ----------
+    const drop = $("drop");
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+      if (e.dataTransfer.files[0]) sendAudio(e.dataTransfer.files[0], e.dataTransfer.files[0].name);
+    };
+
+    // ---------- 麦克风录音（按住说话）----------
+    let mediaRecorder = null, chunks = [];
+    const recBtn = $("recBtn");
+
+    async function startRec() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        chunks = [];
+        mediaRecorder.ondataavailable = (e) => chunks.push(e.data);
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(chunks, { type: "audio/webm" });
+          sendAudio(blob, "mic.webm");
+          stream.getTracks().forEach((t) => t.stop());
+        };
+        mediaRecorder.start();
+        recBtn.classList.add("recording");
+        recBtn.textContent = "🔴 松开识别";
+      } catch (e) {
+        showError("无法访问麦克风：" + e.message);
+      }
+    }
+    function stopRec() {
+      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+      recBtn.classList.remove("recording");
+      recBtn.textContent = "🎤 按住说话";
+    }
+    // 鼠标 + 触摸都支持
+    recBtn.onmousedown = startRec;
+    recBtn.onmouseup = stopRec;
+    recBtn.onmouseleave = () => { if (mediaRecorder && mediaRecorder.state === "recording") stopRec(); };
+    recBtn.ontouchstart = (e) => { e.preventDefault(); startRec(); };
+    recBtn.ontouchend = (e) => { e.preventDefault(); stopRec(); };
+  </script>
+</body>
+</html>

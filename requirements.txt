@@ -20,6 +20,11 @@ librosa>=0.10.0
 # 麦克风实时识别 demo 用（infer_demo.py --mic）
 sounddevice>=0.4.6
 
+# Web Demo 服务（server/app.py）
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+python-multipart>=0.0.9
+
 # 进度条 / 工具
 tqdm>=4.65
 pyyaml>=6.0

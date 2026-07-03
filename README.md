@@ -35,7 +35,13 @@ earphone-asr-wenet/
 ├── run.ps1                         # Windows 一键脚本（PowerShell）
 ├── run.sh                          # Linux / WSL / Mac 一键脚本
 ├── recognize.py                    # 批量解码测试集并计算 CER
-└── infer_demo.py                   # 单条音频 / 麦克风实时识别
+├── infer_demo.py                   # 单条音频 / 麦克风实时识别
+├── server/                         # Web Demo（FastAPI 后端 + 网页前端）
+│   ├── app.py                      # 推理服务：/api/recognize、/api/health
+│   └── static/index.html           # 网页：上传/录音 → 实时显示识别结果
+├── Dockerfile                      # 容器镜像构建
+├── docker-compose.yml              # 一键编排（构建+挂载模型+端口映射）
+└── start_demo.sh                   # 一键启动 Demo（docker / local）
 ```
 
 ## 环境准备
@@ -170,6 +176,40 @@ python infer_demo.py --checkpoint exp/u2pp_conformer/final.pt --dict data/dict/u
 # 麦克风录音 3 秒并识别
 python infer_demo.py --checkpoint exp/u2pp_conformer/final.pt --dict data/dict/units.txt --mic 3
 ```
+
+## Web Demo（网页版实时识别）
+
+提供一个网页界面：**上传音频或点麦克风录音，实时显示识别结果**，底层是真实模型推理。
+
+前置条件：已完成训练（存在 `exp/u2pp_conformer/final.pt`）。若尚未训练，先运行 `bash run.sh`。
+
+### 方式一：Docker（推荐）
+
+```bash
+# 构建镜像并后台启动，浏览器打开 http://localhost:8000
+docker compose up -d --build
+
+docker compose logs -f      # 查看日志
+docker compose down         # 停止
+```
+
+模型通过 volume 挂载（`exp/`、`data/dict/`），换模型无需重建镜像。
+
+### 方式二：本机 Python
+
+```bash
+pip install fastapi "uvicorn[standard]" python-multipart
+uvicorn server.app:app --host 0.0.0.0 --port 8000
+# 或： ./start_demo.sh local
+```
+
+### 接口
+
+| 接口 | 方法 | 说明 |
+| --- | --- | --- |
+| `/` | GET | 网页前端 |
+| `/api/recognize` | POST | 上传音频（form-data 字段 `audio`），返回识别文字 JSON |
+| `/api/health` | GET | 健康检查，返回模型是否就绪 |
 
 ## 系统架构
 
