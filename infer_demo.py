@@ -47,21 +47,20 @@ def recognize_wav(args, wav_path):
         obj = {"key": "demo", "wav": os.path.abspath(wav_path), "txt": ""}
         f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
-    result_file = os.path.join(tmp_dir, "text")
+    result_file = os.path.join(tmp_dir, args.mode, "text")
     cmd = [
         sys.executable, "-m", "wenet.bin.recognize",
+        "--device", "cpu",
         "--gpu", "-1",
-        "--mode", args.mode,
+        "--modes", args.mode,
         "--config", args.config,
         "--test_data", list_path,
         "--checkpoint", args.checkpoint,
         "--beam_size", "10",
         "--batch_size", "1",
-        "--penalty", "0.0",
-        "--dict", args.dict,
         "--ctc_weight", "0.3",
         "--reverse_weight", "0.3",
-        "--result_file", result_file,
+        "--result_dir", tmp_dir,
         "--data_type", "raw",
     ]
     subprocess.run(cmd, check=True)

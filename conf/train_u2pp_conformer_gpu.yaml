@@ -43,6 +43,28 @@ decoder_conf:
     self_attention_dropout_rate: 0.0
     src_attention_dropout_rate: 0.0
 
+# -------- Tokenizer / CMVN / 模型类型（WeNet main 分支必需）--------
+tokenizer: char
+tokenizer_conf:
+    symbol_table_path: data/dict/units.txt
+    split_with_space: false
+    bpe_path: null
+    non_lang_syms_path: null
+    is_multilingual: false
+    num_languages: 1
+
+ctc: ctc
+ctc_conf:
+    ctc_blank_id: 0
+
+cmvn: global_cmvn
+cmvn_conf:
+    cmvn_file: data/train/global_cmvn
+    is_json_cmvn: true
+
+model: asr_model
+dataset: asr
+
 # -------- 混合 CTC / Attention 损失 --------
 model_conf:
     ctc_weight: 0.3             # 总损失里 CTC 占比
@@ -71,6 +93,8 @@ dataset_conf:
         num_f_mask: 2
         max_t: 50
         max_f: 10
+    spec_sub: false
+    spec_trim: false
     shuffle: true
     shuffle_conf:
         shuffle_size: 1500

@@ -30,6 +30,7 @@ from fastapi.staticfiles import StaticFiles
 ROOT = Path(__file__).resolve().parent.parent          # 项目根目录
 MODEL_DIR = Path(os.getenv("MODEL_DIR", ROOT / "exp" / "u2pp_conformer"))
 DICT_PATH = Path(os.getenv("DICT_PATH", ROOT / "data" / "dict" / "units.txt"))
+CMVN_PATH = Path(os.getenv("CMVN_PATH", ROOT / "data" / "train" / "global_cmvn"))
 CONFIG_PATH = Path(os.getenv("CONFIG_PATH", MODEL_DIR / "train.yaml"))
 CHECKPOINT = Path(os.getenv("CHECKPOINT", MODEL_DIR / "final.pt"))
 DECODE_MODE = os.getenv("DECODE_MODE", "attention_rescoring")
@@ -40,7 +41,7 @@ app = FastAPI(title="耳机语音指令识别 Demo", version="1.0")
 
 def model_ready() -> bool:
     """检查真实模型文件是否齐全。"""
-    return CHECKPOINT.exists() and CONFIG_PATH.exists() and DICT_PATH.exists()
+    return CHECKPOINT.exists() and CONFIG_PATH.exists() and DICT_PATH.exists() and CMVN_PATH.exists()
 
 
 def _pick_checkpoint() -> Path:
@@ -72,21 +73,20 @@ def recognize_wav(wav_path: str) -> str:
         obj = {"key": "demo", "wav": os.path.abspath(wav_path), "txt": ""}
         f.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
-    result_file = os.path.join(tmp_dir, "text")
+    result_file = os.path.join(tmp_dir, DECODE_MODE, "text")
     cmd = [
         sys.executable, "-m", "wenet.bin.recognize",
+        "--device", "cpu",
         "--gpu", "-1",                       # CPU 解码
-        "--mode", DECODE_MODE,
+        "--modes", DECODE_MODE,
         "--config", str(CONFIG_PATH),
         "--test_data", list_path,
         "--checkpoint", str(_pick_checkpoint()),
         "--beam_size", "10",
         "--batch_size", "1",
-        "--penalty", "0.0",
-        "--dict", str(DICT_PATH),
         "--ctc_weight", "0.3",
         "--reverse_weight", "0.3",
-        "--result_file", result_file,
+        "--result_dir", tmp_dir,
         "--data_type", "raw",
     ]
     subprocess.run(cmd, check=True)
@@ -108,6 +108,7 @@ def health():
         "model_ready": model_ready(),
         "decode_mode": DECODE_MODE,
         "checkpoint": str(CHECKPOINT),
+        "cmvn": str(CMVN_PATH),
     }
 
 

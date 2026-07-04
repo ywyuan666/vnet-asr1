@@ -23,6 +23,7 @@ ENV PYTHONUNBUFFERED=1 \
 # 单独成层：系统包很少变动，可长期命中缓存
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ffmpeg \
+        git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -31,8 +32,11 @@ WORKDIR /app
 # 关键技巧：只要 requirements.txt 不变，这一层就复用缓存，改业务代码不会重装 torch
 COPY requirements.txt ./
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip install fastapi "uvicorn[standard]" python-multipart
+    pip install -r requirements.txt
+
+ARG WENET_GIT_REF=main
+RUN git clone --branch "${WENET_GIT_REF}" --depth 1 https://github.com/wenet-e2e/wenet.git /opt/wenet && \
+    pip install -e /opt/wenet --no-deps
 
 # ---- 代码层：最后才拷贝源代码（改动最频繁，放最后减少缓存失效） ----
 COPY . .
@@ -41,6 +45,7 @@ COPY . .
 # 模型路径用环境变量，容器启动时可覆盖，指向挂载进来的模型
 ENV MODEL_DIR=/app/exp/u2pp_conformer \
     DICT_PATH=/app/data/dict/units.txt \
+    CMVN_PATH=/app/data/train/global_cmvn \
     CONFIG_PATH=/app/exp/u2pp_conformer/train.yaml \
     CHECKPOINT=/app/exp/u2pp_conformer/final.pt \
     DECODE_MODE=attention_rescoring

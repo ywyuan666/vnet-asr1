@@ -17,7 +17,8 @@ services:
       # 把训练好的模型 / 字典 从宿主机挂载进容器（代码与数据分离）
       # 好处：换模型不用重建镜像，删容器模型也还在
       - ./exp:/app/exp
-      - ./data/dict:/app/data/dict
+      - ./data:/app/data
     environment:
       - DECODE_MODE=attention_rescoring   # 可改 ctc_greedy_search 等
+      - CMVN_PATH=/app/data/train/global_cmvn
     restart: unless-stopped        # 容器异常退出自动重启（除非手动停）

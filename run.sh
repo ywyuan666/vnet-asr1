@@ -14,6 +14,7 @@ stage=${stage:-0}
 stop_stage=${stop_stage:-5}
 repeat=${repeat:-2}
 num_workers=${num_workers:-2}
+device=${device:-}
 
 exp_dir="exp/u2pp_conformer"
 dict="data/dict/units.txt"
@@ -21,6 +22,14 @@ cmvn="data/train/global_cmvn"
 config=${config:-conf/train_u2pp_conformer.yaml}
 
 echo_stage() { echo -e "\n==== Stage $1 : $2 ===="; }
+
+if [ -z "${device}" ]; then
+    if python -c "import torch; raise SystemExit(0 if torch.cuda.is_available() else 1)" >/dev/null 2>&1; then
+        device="cuda"
+    else
+        device="cpu"
+    fi
+fi
 
 # Stage 0: 合成数据
 if [ ${stage} -le 0 ] && [ ${stop_stage} -ge 0 ]; then
@@ -46,12 +55,11 @@ if [ ${stage} -le 3 ] && [ ${stop_stage} -ge 3 ]; then
     mkdir -p ${exp_dir}
     python -m wenet.bin.train \
         --config ${config} \
+        --device ${device} \
         --data_type raw \
-        --symbol_table ${dict} \
         --train_data data/train/data.list \
         --cv_data data/dev/data.list \
         --model_dir ${exp_dir} \
-        --cmvn ${cmvn} \
         --num_workers ${num_workers} \
         --pin_memory
 fi

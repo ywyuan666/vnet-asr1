@@ -14,11 +14,12 @@
 #    - 本脚本会「先装 GPU 版 torch → 装其余依赖 → 装 WeNet 源码 →
 #      最后再确认一次 GPU torch」，防止依赖解析把 torch 换成 CPU 版。
 # ==============================================================================
-set -u  # 用未定义变量报错；不加 -e，便于逐步容错
+set -euo pipefail
 
 # ---- 可配置项（一般不用改）----
 CUDA_WHL="${CUDA_WHL:-cu128}"                       # 5090 用 cu128
 WENET_SRC="${WENET_SRC:-/root/autodl-tmp/wenet_src}" # WeNet 源码克隆位置
+WENET_GIT_REF="${WENET_GIT_REF:-main}"              # 与本项目 CLI/config 对齐的 WeNet 分支/标签
 
 # ---- 彩色输出小工具 ----
 info()  { echo -e "\n\033[1;34m[步骤]\033[0m $*"; }
@@ -50,34 +51,41 @@ fi
 
 # ---------- 3. 安装 GPU 版 PyTorch（5090 关键步骤）----------
 info "安装 PyTorch (${CUDA_WHL} 版，支持 5090 Blackwell)"
-pip install --upgrade pip >/dev/null 2>&1
-pip install torch torchaudio --index-url "https://download.pytorch.org/whl/${CUDA_WHL}"
-if [ $? -eq 0 ]; then ok "PyTorch 安装完成"; else fail "PyTorch 安装失败，检查网络/CUDA_WHL"; exit 1; fi
+python -m pip install --upgrade pip
+python -m pip install --upgrade torch torchaudio --index-url "https://download.pytorch.org/whl/${CUDA_WHL}"
+ok "PyTorch 安装完成"
 
-# ---------- 4. 安装项目其余依赖（不含 torch，避免覆盖 GPU 版）----------
-info "安装项目依赖（跳过 torch，防止覆盖 GPU 版）"
-pip install \
+# ---------- 4. 安装项目与 WeNet 运行依赖（不含 torch，避免覆盖 GPU 版）----------
+info "安装项目与 WeNet 运行依赖（跳过 torch，防止覆盖 GPU 版）"
+python -m pip install \
     "edge-tts>=6.1.0" \
     "soundfile>=0.12.1" "numpy>=1.23" "librosa>=0.10.0" \
     "sounddevice>=0.4.6" \
     "fastapi>=0.110.0" "uvicorn[standard]>=0.27.0" "python-multipart>=0.0.9" \
-    "tqdm>=4.65" "pyyaml>=6.0"
-ok "项目依赖安装完成"
+    "tqdm>=4.65" "pyyaml>=6.0" \
+    "requests" "jieba" "sentencepiece" "langid" "tensorboard" "tensorboardX" \
+    "Pillow" "textgrid" "openai-whisper"
+ok "项目与 WeNet 运行依赖安装完成"
 
 # ---------- 5. 安装 WeNet 训练代码（源码方式，含 wenet.bin.train）----------
 info "安装 WeNet 训练代码"
-if [ ! -d "${WENET_SRC}/.git" ]; then
-    git clone https://github.com/wenet-e2e/wenet.git "${WENET_SRC}"
-else
-    warn "WeNet 源码已存在，跳过克隆：${WENET_SRC}"
+if ! command -v git >/dev/null 2>&1; then
+    apt-get update -qq && apt-get install -y -qq git
 fi
-# --no-deps：只注册 wenet 包（拿到训练入口），不让它重装 torch 等依赖
-pip install -e "${WENET_SRC}" --no-deps
+if [ ! -d "${WENET_SRC}/.git" ]; then
+    git clone --branch "${WENET_GIT_REF}" --depth 1 https://github.com/wenet-e2e/wenet.git "${WENET_SRC}"
+else
+    warn "WeNet 源码已存在，切换到指定版本：${WENET_GIT_REF}"
+    git -C "${WENET_SRC}" fetch --depth 1 origin "${WENET_GIT_REF}"
+    git -C "${WENET_SRC}" checkout FETCH_HEAD
+fi
+# --no-deps：注册 wenet 源码包，但不让它重装 torch；依赖已在上一步手动补齐
+python -m pip install -e "${WENET_SRC}" --no-deps
 ok "WeNet 训练代码安装完成"
 
 # ---------- 6. 重新确认 GPU 版 torch（防止被上一步降级）----------
 info "复核并锁定 GPU 版 PyTorch"
-pip install torch torchaudio --index-url "https://download.pytorch.org/whl/${CUDA_WHL}" --upgrade >/dev/null 2>&1
+python -m pip install torch torchaudio --index-url "https://download.pytorch.org/whl/${CUDA_WHL}" --upgrade
 ok "已复核 GPU 版 PyTorch"
 
 # ---------- 7. 安装 ffmpeg（TTS 音频转码用）----------
@@ -92,14 +100,17 @@ fi
 # ---------- 8. 最终自检 ----------
 info "最终自检"
 echo "--------------------------------------------------"
+set +e
 python - <<'PYEOF'
 import sys
 ok = True
 try:
     import torch
+    import torchaudio
     cuda = torch.cuda.is_available()
     name = torch.cuda.get_device_name(0) if cuda else "无"
     print(f"  PyTorch 版本 : {torch.__version__}")
+    print(f"  torchaudio版本: {torchaudio.__version__}")
     print(f"  CUDA 可用    : {cuda}")
     print(f"  显卡         : {name}")
     if not cuda:
@@ -118,10 +129,24 @@ except Exception as e:
 import importlib.util
 spec = importlib.util.find_spec("wenet")
 print(f"  WeNet 模块   : {'已安装' if spec else '未找到'}")
+for mod in ["yaml", "sentencepiece", "jieba", "langid", "tensorboardX"]:
+    if importlib.util.find_spec(mod) is None:
+        ok = False
+        print(f"  [错误] 缺少依赖: {mod}")
 
 sys.exit(0 if ok else 1)
 PYEOF
-SELFCHECK=$?
+PY_SELFCHECK=$?
+python -m wenet.bin.train --help >/dev/null
+TRAIN_HELP=$?
+python -m wenet.bin.recognize --help >/dev/null
+RECOG_HELP=$?
+set -e
+if [ $PY_SELFCHECK -eq 0 ] && [ $TRAIN_HELP -eq 0 ] && [ $RECOG_HELP -eq 0 ]; then
+    SELFCHECK=0
+else
+    SELFCHECK=1
+fi
 echo "--------------------------------------------------"
 
 if [ $SELFCHECK -eq 0 ]; then

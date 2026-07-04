@@ -13,11 +13,18 @@ set -e
 
 MODE="${1:-docker}"
 MODEL="exp/u2pp_conformer/final.pt"
+CONFIG="exp/u2pp_conformer/train.yaml"
+DICT="data/dict/units.txt"
+CMVN="data/train/global_cmvn"
 
 # ---- 模型自检 ----
-if [ ! -f "$MODEL" ]; then
-    echo "⚠️  未找到训练好的模型：$MODEL"
-    echo "    请先运行  bash run.sh  完成「合成数据 → 训练」后再启动 Demo。"
+if [ ! -f "$MODEL" ] || [ ! -f "$CONFIG" ] || [ ! -f "$DICT" ] || [ ! -f "$CMVN" ]; then
+    echo "⚠️  推理文件不完整，需要以下文件都存在："
+    echo "    $MODEL"
+    echo "    $CONFIG"
+    echo "    $DICT"
+    echo "    $CMVN"
+    echo "    请先运行  bash run.sh  完成训练，或从 AutoDL 下载完整 model_bundle。"
     echo "    （CPU 训练约 1~2 小时；有 GPU 会快很多）"
     exit 1
 fi

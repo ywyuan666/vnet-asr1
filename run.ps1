@@ -9,7 +9,8 @@
 param(
     [int]$Stage = 0,     # 从哪个 stage 开始
     [int]$Stop  = 5,     # 跑到哪个 stage 结束
-    [int]$Repeat = 2     # 数据合成重复轮数(越大数据越多)
+    [int]$Repeat = 2,    # 数据合成重复轮数(越大数据越多)
+    [string]$Device = "cpu"  # Windows 默认 CPU；有 CUDA 可传 -Device cuda
 )
 
 $ErrorActionPreference = "Stop"
@@ -45,12 +46,11 @@ if ($Stage -le 3 -and $Stop -ge 3) {
     # 注意：不同 WeNet 版本参数可能有差异，详见 README 2.4
     python -m wenet.bin.train `
         --config $Config `
+        --device $Device `
         --data_type raw `
-        --symbol_table $Dict `
         --train_data data/train/data.list `
         --cv_data data/dev/data.list `
         --model_dir $ExpDir `
-        --cmvn $Cmvn `
         --num_workers 2 `
         --pin_memory
 }

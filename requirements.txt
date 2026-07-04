@@ -5,9 +5,8 @@
 torch>=2.0.0
 torchaudio>=2.0.0
 
-# WeNet 训练/推理库。若 pip 装的版本不含训练入口(wenet.bin.train)，
-# 请按 README 2.4「方式A」从 GitHub clone 后 `pip install -e .`
-wenet
+# WeNet 本体不要从 pip 装：setup_autodl.sh / Dockerfile 会从官方源码安装，
+# 这样训练入口和解码入口与本项目的 CLI/config 保持一致。
 
 # 语音合成：自动生成训练用的语音指令
 edge-tts>=6.1.0
@@ -28,3 +27,14 @@ python-multipart>=0.0.9
 # 进度条 / 工具
 tqdm>=4.65
 pyyaml>=6.0
+
+# WeNet 源码运行依赖（跳过 torch 后需要手动补齐）
+requests
+jieba
+sentencepiece
+langid
+tensorboard
+tensorboardX
+Pillow
+textgrid
+openai-whisper

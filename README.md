@@ -144,15 +144,15 @@ python tools/make_cmvn.py --data_list data/train/data.list --out data/train/glob
 ```bash
 python -m wenet.bin.train \
   --config conf/train_u2pp_conformer.yaml \
+  --device cpu \
   --data_type raw \
   --train_data data/train/data.list \
   --cv_data data/dev/data.list \
   --model_dir exp/u2pp_conformer \
-  --cmvn data/train/global_cmvn \
   --num_workers 2
 ```
 
-训练日志与每个 epoch 的模型（`*.pt`）保存在 `exp/u2pp_conformer/`。
+训练日志与每个 epoch 的模型（`*.pt`）保存在 `exp/u2pp_conformer/`。字典路径和 CMVN 路径已经写在 YAML 的 `tokenizer_conf` / `cmvn_conf` 中，不再作为命令行参数传入。
 
 ### 解码评测
 

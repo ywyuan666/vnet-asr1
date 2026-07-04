@@ -49,7 +49,7 @@ bash setup_autodl.sh
 ✅ 看到 **「环境配置完成 🎉」** 即成功，脚本还会自动打印下一步的训练命令。
 
 > 💡 脚本专门规避了两个坑：① 分步安装并在最后复核，防止依赖解析把 GPU 版 torch
-> 覆盖成 CPU 版；② WeNet 源码用 `--no-deps` 安装，只取训练入口、不动 torch。
+> 覆盖成 CPU 版；② WeNet 源码用 `--no-deps` 安装，同时手动补齐 WeNet 运行依赖，不让依赖解析乱动 torch。
 
 <details>
 <summary>（备用）手动分步配置——脚本失败时可逐条执行</summary>
@@ -67,11 +67,13 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 # 4) 验证 GPU 可用（关键，必须打印 True）
 python -c "import torch; print('CUDA:', torch.cuda.is_available(), '|', torch.cuda.get_device_name(0))"
 
-# 5) 装项目依赖（不含 torch，避免覆盖 GPU 版）
+# 5) 装项目与 WeNet 运行依赖（不含 torch，避免覆盖 GPU 版）
 pip install edge-tts soundfile numpy librosa sounddevice \
-            fastapi "uvicorn[standard]" python-multipart tqdm pyyaml
+            fastapi "uvicorn[standard]" python-multipart tqdm pyyaml \
+            requests jieba sentencepiece langid tensorboard tensorboardX \
+            Pillow textgrid openai-whisper
 
-# 6) 装 WeNet 训练代码（--no-deps 只取训练入口，不动 torch）
+# 6) 装 WeNet 训练代码（--no-deps 注册源码包，不动 torch）
 cd /root/autodl-tmp
 git clone https://github.com/wenet-e2e/wenet.git wenet_src
 cd wenet_src && pip install -e . --no-deps && cd /root/autodl-tmp/wenet
@@ -124,14 +126,15 @@ watch -n 1 nvidia-smi            # 看到 python 进程占显存、GPU利用率>
 exp/u2pp_conformer/final.pt      # 训练好的模型权重（几十 MB）
 exp/u2pp_conformer/train.yaml    # 训练时生成的配置（推理要用）
 data/dict/units.txt              # 字典（推理要用）
+data/train/global_cmvn           # CMVN 特征归一化统计量（推理要用）
 ```
 
 **下载方式**：JupyterLab 文件树里右键 → Download；或用 AutoDL 的文件管理下载。
 
-> 建议把整个 `exp/` 和 `data/dict/` 目录打包下载，保持路径结构：
+> 建议把 `exp/`、`data/dict/` 和 `data/train/global_cmvn` 打包下载，保持路径结构：
 > ```bash
 > cd /root/autodl-tmp/wenet
-> tar -czf model_bundle.tar.gz exp/u2pp_conformer/final.pt exp/u2pp_conformer/train.yaml data/dict/units.txt
+> tar -czf model_bundle.tar.gz exp/u2pp_conformer/final.pt exp/u2pp_conformer/train.yaml data/dict/units.txt data/train/global_cmvn
 > ```
 > 下载 `model_bundle.tar.gz` 到本地即可。
 
@@ -153,8 +156,8 @@ cd ~/Documents/项目/wenet          # 你的本地项目目录
 
 # 1) 把从云上下载的模型放回原位（解压 model_bundle.tar.gz 到项目根目录）
 tar -xzf ~/Downloads/model_bundle.tar.gz -C .
-# 确认这三个文件就位：
-ls exp/u2pp_conformer/final.pt exp/u2pp_conformer/train.yaml data/dict/units.txt
+# 确认这四个文件就位：
+ls exp/u2pp_conformer/final.pt exp/u2pp_conformer/train.yaml data/dict/units.txt data/train/global_cmvn
 
 # 2) Docker 一键部署
 docker compose up -d --build       # 首次构建约几分钟

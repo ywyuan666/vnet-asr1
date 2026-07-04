@@ -47,20 +47,20 @@ def edit_distance(ref, hyp):
 
 def run_wenet_recognize(args, result_file):
     """调用 WeNet 解码模块，结果写入 result_file。"""
+    result_dir = os.path.dirname(os.path.dirname(result_file))
     cmd = [
         sys.executable, "-m", "wenet.bin.recognize",
+        "--device", "cpu",
         "--gpu", "-1",  # 使用 CPU 解码
-        "--mode", args.mode,
+        "--modes", args.mode,
         "--config", args.config,
         "--test_data", args.test_data,
         "--checkpoint", args.checkpoint,
         "--beam_size", str(args.beam_size),
         "--batch_size", "1",
-        "--penalty", "0.0",
-        "--dict", args.dict,
         "--ctc_weight", str(args.ctc_weight),
         "--reverse_weight", str(args.reverse_weight),
-        "--result_file", result_file,
+        "--result_dir", result_dir,
         "--data_type", "raw",
     ]
     print("执行解码...")
@@ -105,7 +105,7 @@ def main():
     args = p.parse_args()
 
     tmp_dir = tempfile.mkdtemp()
-    result_file = os.path.join(tmp_dir, "text")
+    result_file = os.path.join(tmp_dir, args.mode, "text")
     run_wenet_recognize(args, result_file)
 
     refs = load_refs(args.test_data)
