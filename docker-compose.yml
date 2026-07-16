@@ -8,17 +8,19 @@
 # ==============================================================================
 services:
   asr-demo:
-    build: .                       # 用当前目录的 Dockerfile 构建
-    image: earphone-asr-demo:latest
-    container_name: earphone-asr-demo
+    build: .
+    image: conformer-asr-demo:latest
+    container_name: conformer-asr-demo
     ports:
-      - "8000:8000"                # 主机8000 → 容器8000（左边是你电脑的端口）
+      - "8000:8000"
     volumes:
-      # 把训练好的模型 / 字典 从宿主机挂载进容器（代码与数据分离）
-      # 好处：换模型不用重建镜像，删容器模型也还在
+      # 模型通过 volume 挂载（代码与数据分离，换模型不用重建镜像）
       - ./exp:/app/exp
       - ./data:/app/data
     environment:
-      - DECODE_MODE=attention_rescoring   # 可改 ctc_greedy_search 等
+      - DECODE_MODE=attention          # 可选: attention / transducer / ctc_greedy
+      - MODEL_DIR=/app/exp/conformer_ctc_attn_transducer
+      - DICT_PATH=/app/data/dict/units.txt
       - CMVN_PATH=/app/data/train/global_cmvn
-    restart: unless-stopped        # 容器异常退出自动重启（除非手动停）
+      - CHECKPOINT=/app/exp/conformer_ctc_attn_transducer/best.pt
+    restart: unless-stopped

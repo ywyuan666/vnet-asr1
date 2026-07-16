@@ -3,64 +3,71 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>耳机语音指令识别 · Demo</title>
+  <title>语音指令识别 · Demo</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-      background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+      background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
       min-height: 100vh; display: flex; align-items: center; justify-content: center;
       padding: 20px; color: #1a1a1a;
     }
     .card {
-      background: #fff; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.3);
-      width: 100%; max-width: 560px; padding: 34px 30px; overflow: hidden;
+      background: rgba(255,255,255,.95); border-radius: 20px; box-shadow: 0 25px 80px rgba(0,0,0,.4);
+      width: 100%; max-width: 520px; padding: 32px 28px; backdrop-filter: blur(10px);
     }
-    h1 { font-size: 22px; color: #12324f; text-align: center; margin-bottom: 4px; }
-    .sub { text-align: center; color: #7a8ba0; font-size: 13px; margin-bottom: 8px; }
-    .status { text-align: center; font-size: 12px; margin-bottom: 20px; }
+    h1 { font-size: 22px; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; margin-bottom: 2px; }
+    .sub { text-align: center; color: #7a8ba0; font-size: 12px; margin-bottom: 6px; }
+    .tags { display: flex; gap: 4px; justify-content: center; margin-bottom: 6px; }
+    .tags span { background: #eef4fb; color: #5a7db0; font-size: 10px; padding: 2px 8px; border-radius: 8px; }
+    .status { text-align: center; font-size: 12px; margin-bottom: 18px; }
     .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
-    .ok { background: #2ecc71; } .bad { background: #e74c3c; }
-    .cmds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 22px; }
-    .cmds span { background: #eef4fb; color: #2c5aa0; font-size: 12px; padding: 4px 10px; border-radius: 12px; }
-    .row { display: flex; gap: 12px; margin-bottom: 16px; }
+    .ok { background: #2ecc71; } .bad { background: #e74c3c; } .warn { background: #f39c12; }
+    .cmds { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 20px; }
+    .cmds span { background: linear-gradient(135deg,#667eea22,#764ba222); color: #5a3d8a; font-size: 12px; padding: 4px 12px; border-radius: 14px; border: 1px solid #667eea33; }
+    .row { display: flex; gap: 10px; margin-bottom: 14px; }
     .btn {
-      flex: 1; border: none; border-radius: 12px; padding: 15px; font-size: 15px; font-weight: 600;
+      flex: 1; border: none; border-radius: 12px; padding: 14px; font-size: 15px; font-weight: 600;
       cursor: pointer; transition: transform .1s, box-shadow .2s; color: #fff;
     }
-    .btn:active { transform: scale(.97); }
+    .btn:active { transform: scale(.96); }
     .btn-rec { background: linear-gradient(135deg,#ff6b6b,#ee5253); }
     .btn-rec.recording { background: linear-gradient(135deg,#c0392b,#96281b); animation: pulse 1s infinite; }
-    .btn-up { background: linear-gradient(135deg,#4b7bec,#3867d6); }
+    .btn-up { background: linear-gradient(135deg,#667eea,#764ba2); }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.6} }
-    .drop {
-      border: 2px dashed #c3ceda; border-radius: 12px; padding: 18px; text-align: center;
-      color: #8a97a6; font-size: 13px; margin-bottom: 18px; transition: .2s;
+    .mode-bar { display: flex; gap: 4px; margin-bottom: 14px; }
+    .mode-btn {
+      flex: 1; border: 1px solid #d5dce6; border-radius: 8px; padding: 6px 0; font-size: 11px;
+      cursor: pointer; background: #f7f9fc; color: #5a7db0; transition: .15s;
     }
-    .drop.over { border-color: #4b7bec; background: #f5f8ff; color: #4b7bec; }
+    .mode-btn.active { background: #667eea; color: #fff; border-color: #667eea; }
+    .drop {
+      border: 2px dashed #c3ceda; border-radius: 12px; padding: 16px; text-align: center;
+      color: #8a97a6; font-size: 13px; margin-bottom: 16px; transition: .2s;
+    }
+    .drop.over { border-color: #667eea; background: #f5f8ff; color: #667eea; }
     .result {
-      background: #f7f9fc; border-radius: 12px; padding: 20px; min-height: 90px;
-      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+      background: #f7f9fc; border-radius: 14px; padding: 20px; min-height: 90px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
     }
     .result .label { font-size: 12px; color: #8a97a6; }
-    .result .text { font-size: 26px; font-weight: 700; color: #12324f; letter-spacing: 2px; }
+    .result .text { font-size: 28px; font-weight: 700; background: linear-gradient(135deg,#667eea,#764ba2); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: 3px; }
     .result .meta { font-size: 11px; color: #aab4c0; }
-    .spinner { width: 26px; height: 26px; border: 3px solid #dfe6ee; border-top-color: #4b7bec; border-radius: 50%; animation: spin .8s linear infinite; }
+    .spinner { width: 26px; height: 26px; border: 3px solid #dfe6ee; border-top-color: #667eea; border-radius: 50%; animation: spin .8s linear infinite; }
     @keyframes spin { to { transform: rotate(360deg) } }
-    .footer { text-align: center; font-size: 11px; color: #b0bac6; margin-top: 18px; }
+    .footer { text-align: center; font-size: 11px; color: #b0bac6; margin-top: 16px; }
     input[type=file] { display: none; }
   </style>
 </head>
 <body>
   <div class="card">
-    <h1>🎧 耳机语音指令识别</h1>
-    <p class="sub">WeNet · U2++ Conformer · 端到端中文语音识别</p>
-    <p class="status"><span id="dot" class="dot bad"></span><span id="statusText">检查模型状态…</span></p>
-
-    <div class="cmds">
+    <h1>语音指令识别</h1>
+    <p class="sub">Conformer · CTC / Attention / Transducer 端到端中文语音识别</p>
+    <div class="tags">
       <span>下一首</span><span>打开降噪</span><span>接听电话</span>
       <span>调高音量</span><span>暂停播放</span><span>查询电量</span>
     </div>
+    <p class="status"><span id="dot" class="dot bad"></span><span id="statusText">检查模型状态…</span></p>
 
     <div class="row">
       <button id="recBtn" class="btn btn-rec">🎤 按住说话</button>
@@ -68,18 +75,35 @@
     </div>
     <input type="file" id="fileInput" accept="audio/*" />
 
-    <div id="drop" class="drop">把 wav / mp3 音频拖到这里也可以识别</div>
+    <div class="mode-bar">
+      <button class="mode-btn" data-mode="attention">Attention</button>
+      <button class="mode-btn" data-mode="transducer">Transducer</button>
+      <button class="mode-btn" data-mode="ctc_greedy">CTC</button>
+    </div>
+
+    <div id="drop" class="drop">把 wav / mp3 音频拖到这里识别</div>
 
     <div class="result" id="result">
       <div class="label">识别结果将显示在这里</div>
     </div>
 
-    <p class="footer">POST /api/recognize · 真实模型推理 · 支持流式/非流式</p>
+    <p class="footer">POST /api/recognize · 真实 PyTorch 模型推理 · 三种解码模式可选</p>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     const resultBox = $("result");
+    let currentMode = "attention";
+
+    // ---------- 解码模式切换 ----------
+    document.querySelectorAll(".mode-btn").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".mode-btn").forEach((b) => b.classList.remove("active"));
+        btn.classList.add("active");
+        currentMode = btn.dataset.mode;
+      });
+    });
+    document.querySelector(".mode-btn[data-mode='attention']").classList.add("active");
 
     // ---------- 健康检查 ----------
     async function checkHealth() {
@@ -88,9 +112,9 @@
         const d = await r.json();
         if (d.model_ready) {
           $("dot").className = "dot ok";
-          $("statusText").textContent = "模型就绪 · 解码模式：" + d.decode_mode;
+          $("statusText").textContent = "模型就绪 · " + d.decode_mode + " 模式";
         } else {
-          $("dot").className = "dot bad";
+          $("dot").className = "dot warn";
           $("statusText").textContent = "模型未就绪：请先训练或挂载模型";
         }
       } catch (e) {
@@ -118,6 +142,7 @@
       showLoading();
       const fd = new FormData();
       fd.append("audio", blob, filename);
+      fd.append("mode", currentMode);
       try {
         const r = await fetch("/api/recognize", { method: "POST", body: fd });
         const d = await r.json();
@@ -141,7 +166,7 @@
       if (e.dataTransfer.files[0]) sendAudio(e.dataTransfer.files[0], e.dataTransfer.files[0].name);
     };
 
-    // ---------- 麦克风录音（按住说话）----------
+    // ---------- 麦克风录音 ----------
     let mediaRecorder = null, chunks = [];
     const recBtn = $("recBtn");
 
@@ -168,7 +193,6 @@
       recBtn.classList.remove("recording");
       recBtn.textContent = "🎤 按住说话";
     }
-    // 鼠标 + 触摸都支持
     recBtn.onmousedown = startRec;
     recBtn.onmouseup = stopRec;
     recBtn.onmouseleave = () => { if (mediaRecorder && mediaRecorder.state === "recording") stopRec(); };
