@@ -7,3 +7,4 @@ numpy>=1.23
 tqdm>=4.65
 pyyaml>=6.0
 librosa>=0.10.0
+miniaudio>=2.0.0         # mp3 -> wav 解码（数据生成用）

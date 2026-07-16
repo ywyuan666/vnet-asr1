@@ -10,7 +10,7 @@
 param(
     [int]$Stage = 0,
     [int]$Stop  = 5,
-    [int]$Repeat = 1,
+    [int]$Repeat = 5,
     [string]$Device = "cpu"
 )
 
