@@ -52,7 +52,7 @@ if ($Stage -le 3 -and $Stop -ge 3) {
         --cmvn $Cmvn `
         --model_dir $ExpDir `
         --batch_size 16 `
-        --max_epoch 30 `
+        --max_epoch 200 `
         --device $Device `
         --d_model 144 `
         --ctc_weight 0.3 `
