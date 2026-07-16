@@ -1,0 +1,9 @@
+# ===== Conformer + CTC/Attention/Transducer ASR 项目依赖 =====
+torch>=2.0.0
+torchaudio>=2.0.0
+edge-tts>=6.1.0
+soundfile>=0.12.1
+numpy>=1.23
+tqdm>=4.65
+pyyaml>=6.0
+librosa>=0.10.0

@@ -2,28 +2,26 @@
 """
 make_cmvn.py
 ============
-计算全局 CMVN（Cepstral Mean and Variance Normalization）统计量。
-作用：把 Fbank 特征做「零均值、单位方差」归一化，让训练更稳更快。
+计算全局 CMVN 统计量。
+使用 soundfile + torchaudio.compliance.kaldi 提取 Fbank 特征，
+避免对系统 ffmpeg 的依赖。
 
-输出文件 global_cmvn 是一个 JSON，WeNet 训练时通过 --cmvn 读入：
-  {"mean_stat": [...80个...], "var_stat": [...80个...], "frame_num": N}
-
-用法：
-  python tools/make_cmvn.py --data_list data/train/data.list --out data/train/global_cmvn
+输出：JSON 格式的全局均值和方差统计量。
 """
 import argparse
 import json
 import sys
 
-try:  # Windows 终端正常显示中文
+import numpy as np
+import soundfile as sf
+import torch
+import torchaudio.compliance.kaldi as kaldi
+from tqdm import tqdm
+
+try:
     sys.stdout.reconfigure(encoding="utf-8")
 except Exception:
     pass
-
-import torch
-import torchaudio
-import torchaudio.compliance.kaldi as kaldi
-from tqdm import tqdm
 
 
 def main():
@@ -41,11 +39,16 @@ def main():
         lines = [json.loads(x) for x in f if x.strip()]
 
     for obj in tqdm(lines, desc="计算CMVN统计量"):
-        waveform, sr = torchaudio.load(obj["wav"])
+        # 用 soundfile 读取 wav（无需 ffmpeg）
+        data, sr = sf.read(obj["wav"])
         if sr != 16000:
-            resampler = torchaudio.transforms.Resample(sr, 16000)
-            waveform = resampler(waveform)
+            # 简单重采样到 16k
+            import librosa
+            data = librosa.resample(data, orig_sr=sr, target_sr=16000)
+            sr = 16000
+        waveform = torch.from_numpy(data).float().unsqueeze(0)  # [1, T]
         waveform = waveform * (1 << 15)  # 归一化到 16bit PCM 量级
+
         feat = kaldi.fbank(
             waveform,
             num_mel_bins=args.num_mel_bins,

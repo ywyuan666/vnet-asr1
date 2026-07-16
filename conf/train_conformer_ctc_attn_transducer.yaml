@@ -1,0 +1,120 @@
+# ============================================================
+#  Conformer + CTC / Attention / Transducer 联合训练配置
+# ------------------------------------------------------------
+#  架构: Conformer 编码器(共享) + CTC分支 + Attention解码器 + Transducer解码器
+#  Loss: total = ctc_weight*CTC + attn_weight*Attn + trans_weight*Transducer
+# ============================================================
+
+# -------- 编码器：Conformer --------
+encoder: conformer
+encoder_conf:
+    output_size: 144            # 编码器隐藏维度
+    attention_heads: 4          # 多头注意力头数
+    linear_units: 1024          # 前馈层维度
+    num_blocks: 6               # Conformer 块数
+    dropout_rate: 0.1
+    positional_dropout_rate: 0.1
+    attention_dropout_rate: 0.0
+    input_layer: conv2d
+    normalize_before: true
+    cnn_module_kernel: 15
+    use_cnn_module: true
+    activation_type: swish
+    pos_enc_layer_type: rel_pos
+    selfattention_layer_type: rel_selfattn
+    causal: false
+    use_dynamic_chunk: false
+    cnn_module_norm: layer_norm
+
+# -------- Attention 解码器 --------
+decoder: transformer
+decoder_conf:
+    attention_heads: 4
+    linear_units: 1024
+    num_blocks: 3               # 解码器层数
+    dropout_rate: 0.1
+    positional_dropout_rate: 0.1
+    self_attention_dropout_rate: 0.0
+    src_attention_dropout_rate: 0.0
+
+# -------- Transducer 解码器 --------
+predictor: rnn
+predictor_conf:
+    embed_dim: 144
+    hidden_dim: 144
+    num_layers: 1
+    dropout: 0.1
+joint_conf:
+    joint_dim: 144
+
+# -------- Tokenizer / CMVN --------
+tokenizer: char
+tokenizer_conf:
+    symbol_table_path: data/dict/units.txt
+    split_with_space: false
+
+ctc: ctc
+ctc_conf:
+    ctc_blank_id: 0
+
+cmvn: global_cmvn
+cmvn_conf:
+    cmvn_file: data/train/global_cmvn
+    is_json_cmvn: true
+
+model: asr_model
+dataset: asr
+
+# -------- 联合损失权重 --------
+model_conf:
+    ctc_weight: 0.3             # CTC 损失权重
+    attn_weight: 0.3            # Attention 损失权重
+    trans_weight: 0.4           # Transducer 损失权重
+    lsm_weight: 0.1
+    length_normalized_loss: false
+
+# -------- 数据增强与特征 --------
+dataset_conf:
+    filter_conf:
+        max_length: 2000
+        min_length: 10
+        token_max_length: 100
+        token_min_length: 1
+    resample_conf:
+        resample_rate: 16000
+    speed_perturb: true
+    fbank_conf:
+        num_mel_bins: 80
+        frame_shift: 10
+        frame_length: 25
+        dither: 1.0
+    spec_aug: true
+    spec_aug_conf:
+        num_t_mask: 2
+        num_f_mask: 2
+        max_t: 50
+        max_f: 10
+    spec_sub: false
+    spec_trim: false
+    shuffle: true
+    shuffle_conf:
+        shuffle_size: 1500
+    sort: true
+    sort_conf:
+        sort_size: 200
+    batch_conf:
+        batch_type: 'static'
+        batch_size: 16
+
+# -------- 优化器 --------
+grad_clip: 5
+accum_grad: 1
+max_epoch: 60
+log_interval: 20
+
+optim: adam
+optim_conf:
+    lr: 0.001
+scheduler: warmuplr
+scheduler_conf:
+    warmup_steps: 500
