@@ -25,3 +25,6 @@ data/
 
 # ===== 运行时日志 =====
 *.log
+
+# ===== HF Space 部署副本（模型已上传到 HF Model Hub）=====
+hf_space/

@@ -207,6 +207,27 @@ python infer_demo_ctc_attn_transducer.py \
 - **Transducer 解码丢尾字？** 贪心算法的固有问题，可改用 beam search。
 - **没有 GPU？** CPU 也能训练，调小 `d_model`（如 96）可加速。
 
+## 在线 Demo
+
+| 平台 | 链接 | 费用 |
+|------|------|------|
+| **Hugging Face Model Hub** | [yaweiyuan/vnet-asr1](https://huggingface.co/yaweiyuan/vnet-asr1) | 免费 |
+| **Google Colab**（推荐） | [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/ywyuan666/vnet-asr1/blob/main/colab_demo.ipynb) | 免费（需 Google 账号） |
+| **GitHub 仓库** | [ywyuan666/vnet-asr1](https://github.com/ywyuan666/vnet-asr1) | 免费 |
+
+### 在线语音识别（免费方案）
+
+使用 Google Colab 免费运行网页版语音识别：
+
+1. 点击上方 **"Open In Colab"** 按钮
+2. 菜单 "运行" -> "全部运行"
+3. 等待约 2 分钟（下载模型+安装依赖）
+4. 看到 **"Running on public URL"** 链接，点击即可打开语音识别网页
+
+### 自托管部署
+
+详细步骤见 [AutoDL训练与Docker部署操作清单.md](AutoDL训练与Docker部署操作清单.md)。
+
 ## 参考
 
 - WeNet: https://github.com/wenet-e2e/wenet
