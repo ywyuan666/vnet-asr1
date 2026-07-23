@@ -31,3 +31,7 @@ hf_space/gradio_output.txt
 hf_space/gradio_error.txt
 hf_space/*.pyc
 hf_space/.gradio/
+
+# ===== 本地测试文件 / 临时产物 =====
+test_output.txt
+.pytest_cache/
