@@ -102,7 +102,7 @@ def recognize_wav(wav_path: str) -> str:
 
 @app.get("/api/health")
 def health():
-    """健康检查：容器编排 / 面试演示前自检用。"""
+    """健康检查：容器编排 / 技术演示前自检用。"""
     return {
         "status": "ok",
         "model_ready": model_ready(),
