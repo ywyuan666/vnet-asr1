@@ -170,6 +170,11 @@ class ConformerBlock(nn.Module):
 
         attn_input = self.norm_attn(x)
         effective_mask = attn_mask if attn_mask is not None else mask
+        # Convert 3D (B, 1, T) padding mask → 4D (B, 1, T, T) attention mask
+        if effective_mask is not None and effective_mask.dim() == 3:
+            # effective_mask has True = padding; for attention we want True = keep
+            keep = (effective_mask == 0).float()  # (B, 1, T), 1 where valid
+            effective_mask = keep.unsqueeze(-1) * keep.unsqueeze(-2)  # (B, 1, T, T)
         if attn_cache is not None:
             attn_out, new_attn_cache = self.attn(attn_input, effective_mask, attn_cache)
         else:
