@@ -29,8 +29,13 @@ def main():
     parser.add_argument("--cmvn", default=None)
     parser.add_argument("--wav", required=True)
     parser.add_argument("--mode", default="ctc_greedy",
-                        choices=["ctc_greedy", "attention", "transducer"])
+                        choices=["ctc_greedy", "attention", "transducer",
+                                 "ctc_streaming", "transducer_streaming"])
     parser.add_argument("--device", default="cpu")
+    parser.add_argument("--chunk_size", type=int, default=16,
+                        help="流式解码的 chunk size")
+    parser.add_argument("--right_context", type=int, default=4,
+                        help="流式解码的右侧上下文帧数")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -84,9 +89,26 @@ def main():
     elif args.mode == "transducer":
         results = model.recognize_transducer(feats, max_len=20, sos_id=sos_id)
         result = "".join(idx2token.get(t, "") for t in results[0])
+    elif args.mode == "ctc_streaming":
+        hyps = model.recognize_ctc_streaming(
+            feats, idx2token,
+            chunk_size=args.chunk_size,
+            right_context=args.right_context,
+        )
+        result = hyps[0]
+    elif args.mode == "transducer_streaming":
+        results = model.recognize_transducer_streaming(
+            feats,
+            chunk_size=args.chunk_size,
+            right_context=args.right_context,
+            max_len=20, sos_id=sos_id,
+        )
+        result = "".join(idx2token.get(t, "") for t in results[0])
 
     print("\n" + "=" * 50)
     print(f"  解码模式: {args.mode}")
+    if "streaming" in args.mode:
+        print(f"  chunk_size={args.chunk_size}, right_context={args.right_context}")
     print(f"  识别结果: 【{result}】")
     print("=" * 50)
 

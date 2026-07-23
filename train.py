@@ -15,6 +15,7 @@ train.py
 import argparse
 import json
 import os
+import random
 import sys
 import time
 
@@ -29,6 +30,7 @@ from tqdm import tqdm
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from model.conformer_ctc_attn_transducer import ConformerCTCATTNTransducer
+from model.augmentation import SpecAugment, speed_perturb
 
 try:
     sys.stdout.reconfigure(encoding="utf-8")
@@ -43,7 +45,8 @@ except Exception:
 class AsrDataset(Dataset):
     """WeNet 风格 data.list 数据加载"""
 
-    def __init__(self, data_list_path, cmvn_path=None, max_length=2000):
+    def __init__(self, data_list_path, cmvn_path=None, max_length=2000,
+                 speed_perturb=False):
         self.items = []
         with open(data_list_path, encoding="utf-8") as f:
             for line in f:
@@ -51,6 +54,7 @@ class AsrDataset(Dataset):
                     obj = json.loads(line)
                     self.items.append(obj)
         self.max_length = max_length
+        self.speed_perturb = speed_perturb
 
         # 加载 CMVN (mean_stat/var_stat 是累加和，需除以 frame_num 得到真实均值和方差)
         self.cmvn_mean = None
@@ -81,6 +85,13 @@ class AsrDataset(Dataset):
             sr = 16000
         waveform = torch.from_numpy(data).float().unsqueeze(0)  # [1, T]
         waveform = waveform * (1 << 15)
+
+        # 速度扰动（在 Fbank 提取之前应用）
+        if self.speed_perturb:
+            data_speed = speed_perturb(data, sr=16000)
+            waveform = torch.from_numpy(data_speed).float().unsqueeze(0)
+            waveform = waveform * (1 << 15)
+
         feat = kaldi.fbank(
             waveform,
             num_mel_bins=80,
@@ -170,8 +181,12 @@ class WarmupLR:
 # 训练与验证
 # ======================================================================
 
-def train_epoch(model, loader, optimizer, scheduler, device, args, epoch):
+def train_epoch(model, loader, optimizer, scheduler, device, args, epoch,
+                spec_augment=None):
     model.train()
+    if spec_augment is not None:
+        spec_augment.train()
+
     total_loss = 0
     total_ctc = 0
     total_attn = 0
@@ -188,8 +203,20 @@ def train_epoch(model, loader, optimizer, scheduler, device, args, epoch):
         trans_in = trans_in.to(device)
         trans_lens = trans_lens.to(device)
 
+        # SpecAugment（在 CMVN 之后、编码器之前应用）
+        if spec_augment is not None:
+            feats = spec_augment(feats, feat_lens)
+
+        # 随机决定是否使用流式模式训练
+        is_streaming = False
+        if args.use_streaming:
+            is_streaming = random.random() < args.streaming_prob
+
         optimizer.zero_grad()
-        outputs = model(feats, feat_lens, attn_in, attn_out, trans_in, trans_lens)
+        outputs = model(feats, feat_lens, attn_in, attn_out, trans_in, trans_lens,
+                        is_streaming=is_streaming,
+                        chunk_size=args.chunk_size if is_streaming else 0,
+                        right_context=args.right_context if is_streaming else 0)
         loss = outputs["loss"]
 
         loss.backward()
@@ -209,6 +236,7 @@ def train_epoch(model, loader, optimizer, scheduler, device, args, epoch):
             "ctc": f"{outputs['ctc_loss'].item():.4f}",
             "attn": f"{outputs['attn_loss'].item():.4f}",
             "trans": f"{outputs['transducer_loss'].item():.4f}",
+            "stream": f"{int(is_streaming)}",
         })
 
     return {
@@ -274,6 +302,26 @@ def main():
     parser.add_argument("--ctc_weight", type=float, default=0.3)
     parser.add_argument("--attn_weight", type=float, default=0.3)
     parser.add_argument("--trans_weight", type=float, default=0.4)
+
+    # SpecAugment
+    parser.add_argument("--spec_augment", action="store_true", help="启用 SpecAugment")
+    parser.add_argument("--freq_mask_width", type=int, default=10)
+    parser.add_argument("--time_mask_width", type=int, default=25)
+    parser.add_argument("--num_freq_masks", type=int, default=2)
+    parser.add_argument("--num_time_masks", type=int, default=2)
+
+    # Speed perturbation
+    parser.add_argument("--speed_perturb", action="store_true", help="启用速度扰动")
+
+    # Streaming training
+    parser.add_argument("--use_streaming", action="store_true", help="启用流式训练")
+    parser.add_argument("--chunk_size", type=int, default=16,
+                        help="流式训练的 chunk size（原始特征帧）")
+    parser.add_argument("--right_context", type=int, default=4,
+                        help="每 chunk 的右侧上下文帧数")
+    parser.add_argument("--streaming_prob", type=float, default=0.5,
+                        help="训练时使用流式模式的概率")
+
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -292,7 +340,7 @@ def main():
     print(f"词表大小: {vocab_size}, <sos/eos> id: {sos_id}")
 
     # 数据集
-    train_ds = AsrDataset(args.train_data, args.cmvn)
+    train_ds = AsrDataset(args.train_data, args.cmvn, speed_perturb=args.speed_perturb)
     cv_ds = AsrDataset(args.cv_data, args.cmvn)
     collate = lambda b: collate_fn(b, vocab, sos_id)
 
@@ -314,7 +362,30 @@ def main():
         ctc_weight=args.ctc_weight,
         attn_weight=args.attn_weight,
         trans_weight=args.trans_weight,
+        chunk_size=args.chunk_size if args.use_streaming else 0,
+        right_context=args.right_context,
+        streaming_prob=args.streaming_prob,
     ).to(device)
+
+    # SpecAugment（仅在训练时启用）
+    spec_augment = None
+    if args.spec_augment:
+        spec_augment = SpecAugment(
+            freq_mask_width=args.freq_mask_width,
+            time_mask_width=args.time_mask_width,
+            num_freq_masks=args.num_freq_masks,
+            num_time_masks=args.num_time_masks,
+        ).to(device)
+        print(f"SpecAugment 已启用: F({args.num_freq_masks}x{args.freq_mask_width}) "
+              f"T({args.num_time_masks}x{args.time_mask_width})")
+
+    if args.speed_perturb:
+        print("Speed perturbation 已启用 (0.9/1.0/1.1x)")
+
+    if args.use_streaming:
+        print(f"流式训练已启用: chunk_size={args.chunk_size}, "
+              f"right_context={args.right_context}, "
+              f"streaming_prob={args.streaming_prob}")
 
     n_params = sum(p.numel() for p in model.parameters())
     print(f"模型参数量: {n_params:,}")
@@ -326,7 +397,8 @@ def main():
     # 训练
     best_loss = float("inf")
     for epoch in range(1, args.max_epoch + 1):
-        train_metrics = train_epoch(model, train_loader, optimizer, scheduler, device, args, epoch)
+        train_metrics = train_epoch(model, train_loader, optimizer, scheduler, device, args, epoch,
+                                    spec_augment=spec_augment)
         cv_metrics = validate(model, cv_loader, device)
 
         lr = scheduler.get_lr()

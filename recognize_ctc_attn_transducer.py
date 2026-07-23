@@ -87,7 +87,14 @@ def main():
     parser.add_argument("--cmvn", default=None)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--mode", default="all",
-                        choices=["ctc_greedy", "attention", "transducer", "all"])
+                        choices=["ctc_greedy", "attention", "transducer", "all",
+                                 "ctc_streaming", "transducer_streaming"])
+    parser.add_argument("--streaming", action="store_true",
+                        help="启用流式解码（等价于 ctc_streaming mode）")
+    parser.add_argument("--chunk_size", type=int, default=16,
+                        help="流式解码的 chunk size")
+    parser.add_argument("--right_context", type=int, default=4,
+                        help="流式解码的右侧上下文帧数")
     args = parser.parse_args()
 
     device = torch.device(args.device)
@@ -141,11 +148,17 @@ def main():
     else:
         modes = [args.mode]
 
+    # 如果 --streaming 标志启用，添加流式模式
+    if args.streaming:
+        modes = ["ctc_streaming"]
+
     for mode in modes:
         total_err, total_ref = 0, 0
         all_correct = 0
         print(f"{'='*60}")
         print(f"  解码模式: {mode}")
+        if mode in ("ctc_streaming", "transducer_streaming"):
+            print(f"  chunk_size={args.chunk_size}, right_context={args.right_context}")
         print(f"{'='*60}")
 
         for item in test_items:
@@ -168,6 +181,21 @@ def main():
                 hyp_text = "".join(tokens)
             elif mode == "transducer":
                 results = model.recognize_transducer(feats, max_len=20, sos_id=sos_id)
+                hyp_text = "".join(idx2token.get(t, "") for t in results[0])
+            elif mode == "ctc_streaming":
+                hyps = model.recognize_ctc_streaming(
+                    feats, idx2token,
+                    chunk_size=args.chunk_size,
+                    right_context=args.right_context,
+                )
+                hyp_text = hyps[0]
+            elif mode == "transducer_streaming":
+                results = model.recognize_transducer_streaming(
+                    feats,
+                    chunk_size=args.chunk_size,
+                    right_context=args.right_context,
+                    max_len=20, sos_id=sos_id,
+                )
                 hyp_text = "".join(idx2token.get(t, "") for t in results[0])
             else:
                 continue
