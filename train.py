@@ -297,6 +297,7 @@ def main():
     parser.add_argument("--lr", type=float, default=0.001)
     parser.add_argument("--warmup_steps", type=int, default=500)
     parser.add_argument("--d_model", type=int, default=144)
+    parser.add_argument("--enc_blocks", type=int, default=6, help="Conformer 编码器层数，设0则只保留卷积前端")
     parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--device", default="cpu")
     parser.add_argument("--ctc_weight", type=float, default=0.3)
@@ -359,6 +360,7 @@ def main():
     model = ConformerCTCATTNTransducer(
         vocab_size=vocab_size,
         d_model=args.d_model,
+        enc_blocks=args.enc_blocks,
         ctc_weight=args.ctc_weight,
         attn_weight=args.attn_weight,
         trans_weight=args.trans_weight,
