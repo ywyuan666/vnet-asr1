@@ -78,6 +78,17 @@ x = LayerNorm(x)
 | TensorRT | FP16 | 3 - 5x | ~7 MB |
 | TensorRT | INT8 | 5 - 8x | ~4 MB |
 
+### AISHELL-1 开源基准测试（178h 中文普通话）
+
+| 模型 | 解码模式 | CER | 参数量 | 说明 |
+|------|---------|-----|--------|------|
+| **FunASR Paraformer large** | Attention | **2.28%** | ~46M | 百度开源 SOTA，作为性能上界 |
+| WeNet U2++ Conformer | Attention Rescoring | ~4.61% | ~46M | 业内标准基线 |
+| vnet-asr1 Conformer | Attention (训练中) | 待优化 | ~6.6M | 本项目的训练目标 |
+
+> **注意**：上方 TTS 合成数据 CER 0.87% 是在 300 条特定指令数据集上的结果，不代表通用场景。
+> AISHELL-1 上当前处于调试阶段，详见 [调试日志](docs/debug_log.md)。
+
 ---
 
 ## 快速开始
