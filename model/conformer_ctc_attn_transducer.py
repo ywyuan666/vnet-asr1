@@ -565,23 +565,25 @@ class ConformerCTCATTNTransducer(nn.Module):
             ignore_index=-1,
         )
 
-        # --- Transducer Loss ---
-        trans_logits, trans_lens_clamped = self.trans_decoder(
-            encoder_out, trans_tokens, trans_token_lens
-        )
-        # targets: trans_tokens[:, 1:]  去掉 <sos> (需 int32 类型)
-        trans_targets = trans_tokens[:, 1:].int()  # [B, U-1], int32
-        trans_logit_lengths = enc_lens.clamp(min=1, max=T_enc).int()
-        trans_target_lengths = (trans_token_lens - 1).clamp(min=1, max=trans_tokens.size(1) - 1).int()
-        if trans_targets.size(1) > 0 and trans_logits.size(2) > 0:
-            transducer_loss = torchaudio.functional.rnnt_loss(
-                logits=trans_logits,
-                targets=trans_targets,
-                logit_lengths=trans_logit_lengths,
-                target_lengths=trans_target_lengths,
-                blank=0,
-                reduction="mean",
+        # --- Transducer Loss (only when trans_weight > 0) ---
+        if self.trans_weight > 0:
+            trans_logits, trans_lens_clamped = self.trans_decoder(
+                encoder_out, trans_tokens, trans_token_lens
             )
+            trans_targets = trans_tokens[:, 1:].int()
+            trans_logit_lengths = enc_lens.clamp(min=1, max=T_enc).int()
+            trans_target_lengths = (trans_token_lens - 1).clamp(min=1, max=trans_tokens.size(1) - 1).int()
+            if trans_targets.size(1) > 0 and trans_logits.size(2) > 0:
+                transducer_loss = torchaudio.functional.rnnt_loss(
+                    logits=trans_logits,
+                    targets=trans_targets,
+                    logit_lengths=trans_logit_lengths,
+                    target_lengths=trans_target_lengths,
+                    blank=0,
+                    reduction="mean",
+                )
+            else:
+                transducer_loss = torch.tensor(0.0, device=feats.device)
         else:
             transducer_loss = torch.tensor(0.0, device=feats.device)
 
