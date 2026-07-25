@@ -221,8 +221,8 @@ class ConformerEncoder(nn.Module):
             nn.Conv2d(d_model, d_model, 3, (1, 2), padding=1), # (T/2,40)→(T/2,20)
             nn.ReLU(),
         )
-        sub_dim = d_model * (idim // 4)  # idim=80 → 20 after both strides
-        self.linear = nn.Linear(sub_dim, d_model)
+        # 用 mean pool 替代 Linear 瓶颈，避免 20x 压缩丢失信息
+        self.output_dim = d_model
         self.pos_enc = PositionalEncoding(d_model)
         self.blocks = nn.ModuleList([
             ConformerBlock(d_model, n_head, d_ff, kernel_size, dropout)
@@ -246,8 +246,8 @@ class ConformerEncoder(nn.Module):
         x = x.unsqueeze(1)                     # [B, 1, T, idim]
         x = self.subsample(x)                  # [B, C, T/4, idim/4]
         B, C, Tt, Ff = x.shape
-        x = x.transpose(1, 2).contiguous().view(B, Tt, C * Ff)
-        x = self.linear(x)                     # [B, T/4, d_model]
+        x = x.mean(dim=3)                        # [B, d_model, Tt] pool over frequency
+        x = x.transpose(1, 2)                   # [B, Tt, d_model]
         x = self.pos_enc(x)
 
         # 流式训练：使用 chunk mask 限制注意力范围
@@ -299,9 +299,9 @@ class ConformerEncoder(nn.Module):
         x = x.unsqueeze(1)                     # [B, 1, T, idim]
         x = self.subsample(x)                  # [B, C, T/4, idim/4]
         B, C, Tt, Ff = x.shape
-        x = x.transpose(1, 2).contiguous().view(B, Tt, C * Ff)
-        x = self.linear(x)                     # [B, Tt, d_model]
-
+        x = x.mean(dim=3)                        # [B, d_model, Tt] pool over frequency
+        x = x.transpose(1, 2)                   # [B, Tt, d_model]
+        
         # Positional encoding (offset-aware for global position)
         x = x + self.pos_enc.pe[:, offset:offset + Tt]
 
@@ -703,7 +703,7 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
-        d_model = self.encoder.linear.out_features
+        d_model = self.encoder.output_dim
 
         # 初始化 KV cache
         # cache 的最大长度设为按 chunk 数估计
@@ -773,7 +773,7 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
-        d_model = self.encoder.linear.out_features
+        d_model = self.encoder.output_dim
         max_cache_len = T_full // 2 + 32
         attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
 
