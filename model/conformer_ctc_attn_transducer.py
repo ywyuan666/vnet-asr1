@@ -5,7 +5,7 @@ conformer_ctc_attn_transducer.py
 核心模型：Conformer 编码器 + CTC / Attention / Transducer 三任务联合训练。
 
 架构设计：
-  Fbank → Conv2d 下采样(4x) → N×ConformerBlock → Encoder Memory
+  Fbank → Conv2d 下采样(2x) → N×ConformerBlock → Encoder Memory
       ├── CTC Linear → CTC Logits (CTC Loss)
       ├── Transformer Decoder(cross-attn) → Attn Logits (CE Loss)
       └── Transducer Prediction Net(RNN) → Joint Net → RNNT Logits (RNN-T Loss)
@@ -704,7 +704,7 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         # 初始化 KV cache
         # cache 的最大长度设为按 chunk 数估计
-        max_cache_len = T_full // 4 + 32
+        max_cache_len = T_full // 2 + 32
         attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
 
         all_ctc_logits = []
@@ -771,7 +771,7 @@ class ConformerCTCATTNTransducer(nn.Module):
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
         d_model = self.encoder.linear.out_features
-        max_cache_len = T_full // 4 + 32
+        max_cache_len = T_full // 2 + 32
         attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
 
         results = [[] for _ in range(B)]
