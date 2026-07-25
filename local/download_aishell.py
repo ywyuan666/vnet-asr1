@@ -121,11 +121,13 @@ def build_dict(data_lists, dict_path):
                     chars.add(ch)
     sorted_chars = sorted(chars)
     with open(dict_path, "w", encoding="utf-8") as f:
-        f.write("<blank>\n")
-        f.write("<unk>\n")
+        f.write("<blank> 0\n")
+        f.write("<unk> 1\n")
+        idx = 2
         for ch in sorted_chars:
-            f.write(ch + "\n")
-        f.write("<sos/eos>\n")
+            f.write(f"{ch} {idx}\n")
+            idx += 1
+        f.write(f"<sos/eos> {idx}\n")
     total = len(sorted_chars) + 3
     print("字典已保存到 %s: %d 个 token" % (dict_path, total))
 
