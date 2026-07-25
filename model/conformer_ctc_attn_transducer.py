@@ -34,16 +34,17 @@ class FeedForward(nn.Module):
 
     def __init__(self, d_model, d_ff, dropout=0.1):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(d_model, d_ff),
-            Swish(),
-            nn.Dropout(dropout),
-            nn.Linear(d_ff, d_model),
-            nn.Dropout(dropout),
-        )
+        self.w1 = nn.Linear(d_model, d_ff)
+        self.w2 = nn.Linear(d_ff, d_model)
+        self.dropout = nn.Dropout(dropout)
+        # Swish/SiLU 的推荐 gain ≈ 1.0 (相比 ReLU 的 sqrt(2))
+        nn.init.xavier_uniform_(self.w1.weight, gain=1.0)
+        nn.init.xavier_uniform_(self.w2.weight, gain=1.0)
+        nn.init.zeros_(self.w1.bias)
+        nn.init.zeros_(self.w2.bias)
 
     def forward(self, x):
-        return self.net(x)
+        return self.w2(self.dropout(F.silu(self.w1(x))))
 
 
 class MultiHeadSelfAttention(nn.Module):
@@ -118,26 +119,30 @@ class MultiHeadCrossAttention(nn.Module):
 
 
 class ConvModule(nn.Module):
-    """Conformer 卷积模块：Pointwise → GLU → Depthwise Conv → BN → Swish → Pointwise"""
+    """Conformer 卷积模块：Pointwise → GLU → Depthwise Conv → LayerNorm → Swish → Pointwise"""
 
     def __init__(self, d_model, kernel_size=15, dropout=0.1):
         super().__init__()
         self.pointwise1 = nn.Conv1d(d_model, 2 * d_model, 1)
         self.depthwise = nn.Conv1d(d_model, d_model, kernel_size,
                                    padding=(kernel_size - 1) // 2, groups=d_model)
-        self.bn = nn.BatchNorm1d(d_model)
+        self.norm = nn.LayerNorm(d_model)  # LayerNorm 替代 BN，避免变长序列统计不稳定
         self.pointwise2 = nn.Conv1d(d_model, d_model, 1)
         self.act = Swish()
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
-        x = x.transpose(1, 2)
-        x = F.glu(self.pointwise1(x), dim=1)
-        x = self.depthwise(x)
-        x = self.act(self.bn(x))
-        x = self.pointwise2(x)
+        # x: (B, T, D)
+        x = x.transpose(1, 2)                   # (B, D, T)
+        x = F.glu(self.pointwise1(x), dim=1)    # (B, D, T)
+        x = self.depthwise(x)                    # (B, D, T)
+        x = x.transpose(1, 2)                    # (B, T, D) for LayerNorm
+        x = self.norm(x)
+        x = x.transpose(1, 2)                    # (B, D, T) for conv
+        x = self.act(x)
+        x = self.pointwise2(x)                   # (B, D, T)
         x = self.dropout(x)
-        return x.transpose(1, 2)
+        return x.transpose(1, 2)                 # (B, T, D)
 
 
 class ConformerBlock(nn.Module):
@@ -157,6 +162,7 @@ class ConformerBlock(nn.Module):
         self.ff2 = FeedForward(d_model, d_ff, dropout)
         self.norm_ff2 = nn.LayerNorm(d_model)
         self.norm_final = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x, mask=None, attn_mask=None, attn_cache=None):
         """
@@ -166,7 +172,7 @@ class ConformerBlock(nn.Module):
         attn_cache: optional (cached_k, cached_v) for streaming inference
         Returns: (B, T, D) or (output, new_attn_cache) if attn_cache is not None
         """
-        x = x + 0.5 * self.ff1(self.norm_ff1(x))
+        x = x + 0.5 * self.dropout(self.ff1(self.norm_ff1(x)))
 
         attn_input = self.norm_attn(x)
         effective_mask = attn_mask if attn_mask is not None else mask
@@ -180,10 +186,10 @@ class ConformerBlock(nn.Module):
         else:
             attn_out = self.attn(attn_input, effective_mask)
             new_attn_cache = None
-        x = x + attn_out
+        x = x + self.dropout(attn_out)
 
         x = x + self.conv(self.norm_conv(x))
-        x = x + 0.5 * self.ff2(self.norm_ff2(x))
+        x = x + 0.5 * self.dropout(self.ff2(self.norm_ff2(x)))
         out = self.norm_final(x)
 
         if attn_cache is not None:

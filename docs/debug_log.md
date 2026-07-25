@@ -137,8 +137,37 @@ else:
 | pytest 23 项全部通过 | ✅ |
 | AISHELL-1 数据准备完成 | ✅ |
 | FunASR Paraformer benchmark | ✅ 2.28% CER |
-| 三个关键 bug 修复 | ✅ |
-| vnet-asr1 模型训练 | 🔧 编码器特征学习不足，待优化 |
+| Bug #1-3 修复 | ✅ |
+| Bug #4: BatchNorm1d → LayerNorm | ✅ 已修复 |
+| Bug #5: ConformerBlock 缺失 dropout | ✅ 已修复 |
+| vnet-asr1 模型训练 | 🔧 修复后重新训练中 |
+
+---
+
+## Bug #4：ConvModule 的 BatchNorm1d 导致训练不稳定
+
+### 现象
+5 轮训练 CTC loss 始终卡在 6-7（随机 ~8.08），编码器学不到声学特征
+
+### 根因
+`ConvModule` 使用 `BatchNorm1d(d_model)`，但 ASR 任务中序列长度差异极大（短则 50 帧，长则 2000 帧）。BatchNorm 的 batch statistics 在变长序列上极不稳定：
+- 训练时：每个 step 的 mini-batch 统计方差大，梯度噪音淹没信号
+- 推理时：running stats 不匹配任意单条测试音频
+
+Conformer 原始论文使用的是 **LayerNorm**，而非 BatchNorm。
+
+### 修复
+`model/conformer_ctc_attn_transducer.py:120-143` — ConvModule 中 `BatchNorm1d → LayerNorm`，需在 forward 中做 transpose（conv 用 (B, D, T)，LayerNorm 用 (B, T, D)）
+
+---
+
+## Bug #5：ConformerBlock 残差连接缺失 Dropout
+
+### 现象
+Attention 子层后的残差连接没有 dropout，导致过拟合快
+
+### 修复
+`model/conformer_ctc_attn_transducer.py:153-196` — ConformerBlock 新增 `self.dropout`，在 FFN 1/2 块和 Attention 输出后添加 dropout
 
 ## 调试经验总结
 
