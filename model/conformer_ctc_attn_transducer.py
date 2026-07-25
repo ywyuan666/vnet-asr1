@@ -213,12 +213,15 @@ class ConformerEncoder(nn.Module):
                  num_blocks=6, dropout=0.1, kernel_size=15,
                  chunk_size=0, right_context=0, streaming_prob=0.5):
         super().__init__()
-        # Conv2d 前端：下采样 2x（时间×频率）
+        # Conv2d 前端：时间2x + 频率4x 下采样
+        # stride1=(2,2) → T/2, F/2；stride2=(1,2) → T不变, F/4
         self.subsample = nn.Sequential(
-            nn.Conv2d(1, d_model, 3, 2, padding=1),
+            nn.Conv2d(1, d_model, 3, 2, padding=1),          # (T,F)→(T/2,40)
+            nn.ReLU(),
+            nn.Conv2d(d_model, d_model, 3, (1, 2), padding=1), # (T/2,40)→(T/2,20)
             nn.ReLU(),
         )
-        sub_dim = d_model * (idim // 2)  # idim=80 → 40 after stride-2
+        sub_dim = d_model * (idim // 4)  # idim=80 → 20 after both strides
         self.linear = nn.Linear(sub_dim, d_model)
         self.pos_enc = PositionalEncoding(d_model)
         self.blocks = nn.ModuleList([
