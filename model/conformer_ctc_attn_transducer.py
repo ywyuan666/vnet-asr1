@@ -382,6 +382,7 @@ class DecoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
         self.cross_attn = MultiHeadCrossAttention(d_model, n_head, dropout)
         self.norm2 = nn.LayerNorm(d_model)
+        self.norm_enc = nn.LayerNorm(d_model)  # normalize encoder memory
         self.ff = FeedForward(d_model, d_ff, dropout)
         self.norm3 = nn.LayerNorm(d_model)
         self.dropout = nn.Dropout(dropout)
@@ -389,8 +390,9 @@ class DecoderLayer(nn.Module):
     def forward(self, y, memory, causal_mask):
         # self-attention with causal mask
         y = y + self.dropout(self.self_attn(self.norm1(y), causal_mask))
-        # cross-attention: y -> query, memory -> key/value (no causal mask needed)
-        y = y + self.dropout(self.cross_attn(self.norm2(y), memory, memory))
+        # cross-attention: q from decoder, k/v from normalized encoder memory
+        memory_norm = self.norm_enc(memory)
+        y = y + self.dropout(self.cross_attn(self.norm2(y), memory_norm, memory_norm))
         # FFN
         y = y + self.dropout(self.ff(self.norm3(y)))
         return y
