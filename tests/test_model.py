@@ -108,15 +108,15 @@ class TestConformerEncoder:
         )
 
     def test_forward_4x_downsample(self, encoder):
-        """Test 4x time downsample from Conv2d frontend."""
+        """Test 2x time downsample from Conv2d frontend."""
         batch = 2
-        T = 40  # 40 frames -> 10 after 4x downsample
+        T = 40  # 40 frames -> 20 after 2x downsample
         x = torch.randn(batch, T, 80)
 
         out = encoder(x)
 
-        expected_T = T // 4  # 10
-        assert out.shape == (batch, expected_T, 64), f"Expected (2, 10, 64), got {out.shape}"
+        expected_T = T // 2  # 20
+        assert out.shape == (batch, expected_T, 64), f"Expected (2, 20, 64), got {out.shape}"
 
     def test_streaming_forward(self, encoder):
         """Test streaming forward with chunk mask."""

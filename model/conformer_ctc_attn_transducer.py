@@ -213,14 +213,12 @@ class ConformerEncoder(nn.Module):
                  num_blocks=6, dropout=0.1, kernel_size=15,
                  chunk_size=0, right_context=0, streaming_prob=0.5):
         super().__init__()
-        # Conv2d 前端：下采样 4x
+        # Conv2d 前端：下采样 2x（时间×频率）
         self.subsample = nn.Sequential(
             nn.Conv2d(1, d_model, 3, 2, padding=1),
             nn.ReLU(),
-            nn.Conv2d(d_model, d_model, 3, 2, padding=1),
-            nn.ReLU(),
         )
-        sub_dim = d_model * (idim // 4)
+        sub_dim = d_model * (idim // 2)  # idim=80 → 40 after stride-2
         self.linear = nn.Linear(sub_dim, d_model)
         self.pos_enc = PositionalEncoding(d_model)
         self.blocks = nn.ModuleList([
@@ -545,7 +543,7 @@ class ConformerCTCATTNTransducer(nn.Module):
                                    chunk_size=chunk_size, right_context=right_context)
         # [B, T', D]
         T_enc = encoder_out.size(1)
-        enc_lens = ((feat_lens + 1) // 2 + 1) // 2  # 下采样 4x
+        enc_lens = (feat_lens + 1) // 2  # 下采样 2x
 
         # --- CTC Loss ---
         ctc_logits = self.ctc_linear(encoder_out)  # [B, T', V]
