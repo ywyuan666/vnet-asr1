@@ -10,3 +10,4 @@ Epoch 6/30: train=6.79 cv=7.11 | 138min
 Epoch 7/30: train=6.79 cv=7.24 | 160min 
 Epoch 8/30: train=6.80 cv=7.10 | 182min 
 Epoch 9/30: train=6.80 cv=7.04 | 208min 
+Epoch 10/30: train=6.80 cv=7.01 | 230min 
