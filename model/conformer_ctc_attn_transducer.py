@@ -543,18 +543,30 @@ class ConformerCTCATTNTransducer(nn.Module):
         right_context: 覆盖默认 right_context
         """
         # ---- 共享编码 ----
-        encoder_out = self.encoder(feats, is_streaming=is_streaming,
+        # Bug fix: 根据 feat_lens 计算编码器长度掩码并传入编码器，
+        # 避免 self-attention 在 padding 帧上计算，造成梯度噪声。
+        T_raw = feats.size(1)
+        enc_lens = (feat_lens + 1) // 2  # 下采样 2x（与 Conv2d stride=2 公式一致）
+        T_enc_expected = (T_raw + 1) // 2
+        # 掩码：True 表示 padding（需要屏蔽），shape (B, 1, T_enc_expected)
+        pad_mask = (
+            torch.arange(T_enc_expected, device=feats.device)
+            .unsqueeze(0)
+            .ge(enc_lens.unsqueeze(1))   # >= enc_lens → padding
+            .unsqueeze(1)               # (B, 1, T_enc)
+        )
+        encoder_out = self.encoder(feats, mask=pad_mask, is_streaming=is_streaming,
                                    chunk_size=chunk_size, right_context=right_context)
         # [B, T', D]
         T_enc = encoder_out.size(1)
-        enc_lens = (feat_lens + 1) // 2  # 下采样 2x
 
         # --- CTC Loss ---
         ctc_logits = self.ctc_linear(encoder_out)  # [B, T', V]
         ctc_log_probs = F.log_softmax(ctc_logits, dim=-1)
-        # 去掉 attn_tokens_out 中的 padding (-1)
+        # ys_padded: -1（padding）钳制为 0（blank），CTC 只读 ys_lens 个目标，
+        # 位于 ys_lens 之后的 0 和 sos_id 都不会被读取。
         ys_padded = attn_tokens_out.clamp(min=0)
-        # -1排除末尾sos/eos token, CTC不需要预测结束符
+        # 非 -1 元素个数 = L（真实字符）+ 1（sos/eos），减 1 排除结束符
         ys_lens = ((attn_tokens_out != -1).sum(dim=1) - 1).clamp(min=1)
         ctc_loss = F.ctc_loss(
             ctc_log_probs.transpose(0, 1),
@@ -653,7 +665,13 @@ class ConformerCTCATTNTransducer(nn.Module):
 
     @torch.no_grad()
     def recognize_transducer(self, feats, max_len=50, sos_id=-1):
-        """Transducer 贪心解码（blank 跳过，非 blank 发射）"""
+        """Transducer 贪心解码（blank 跳过，非 blank 发射）
+
+        Bug fix: 原先用 range(max_len * 2) 限制迭代次数，对于 AISHELL-1
+        典型句子 T_enc ≈ 100-200 帧，仅 40 次迭代（max_len=20 时）会提前结束，
+        导致输出为空或严重截断。现改为 T_enc + max_len 次，确保能遍历
+        全部编码器帧并最多发射 max_len 个 token。
+        """
         if sos_id < 0:
             sos_id = self.vocab_size - 1
         encoder_out = self.encoder(feats)  # [B, T_enc, D]
@@ -664,8 +682,11 @@ class ConformerCTCATTNTransducer(nn.Module):
         y = torch.full((B, 1), sos_id, dtype=torch.long, device=feats.device)
         t = 0  # encoder frame index
 
-        for _ in range(max_len * 2):
+        # T_enc 次用于消耗所有 blank，max_len 次用于发射 token
+        for _ in range(T_enc + max_len):
             if t >= T_enc:
+                break
+            if len(results[0]) >= max_len:
                 break
             # Predict using current encoder frame
             logits, state = self.trans_decoder.predict(
@@ -683,7 +704,6 @@ class ConformerCTCATTNTransducer(nn.Module):
                 results[0].append(tok)
                 y = torch.full((B, 1), tok, dtype=torch.long, device=feats.device)
 
-        # Convert token ids to texts in the recognize function
         return results
 
     @torch.no_grad()
@@ -695,11 +715,20 @@ class ConformerCTCATTNTransducer(nn.Module):
         Args:
             feats: (B, T, idim) Fbank 特征
             idx2token: index to token mapping
-            chunk_size: 每 chunk 帧数（原始特征帧，将自动对齐到下采样后边界）
+            chunk_size: 每 chunk 帧数（原始特征帧）
             right_context: 每 chunk 右侧上下文帧数
 
         Returns:
             texts: [str] 识别文本列表
+
+        Bug fix:
+          (1) 旧代码把每个 chunk（包含 right_context 帧）的全部 logits 都追加到
+              all_ctc_logits，非末 chunk 的 right_context 帧在下一个 chunk 中会被
+              再次处理，造成重复输出。
+              修复：非末 chunk 只保留前 (chunk_size+1)//2 个编码器帧的 logits。
+          (2) offset 每次增加 T_out（含 right_context），导致后续 chunk 的位置编码
+              起始点偏移过大，破坏位置信息。
+              修复：非末 chunk 的 offset 只前进 (chunk_size+1)//2（主 chunk 帧数）。
         """
         from model.streaming_helper import init_attn_cache
 
@@ -707,38 +736,42 @@ class ConformerCTCATTNTransducer(nn.Module):
         num_blocks = len(self.encoder.blocks)
         d_model = self.encoder.output_dim
 
-        # 初始化 KV cache
-        # cache 的最大长度设为按 chunk 数估计
-        max_cache_len = T_full // 2 + 32
-        attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
+        # 每个主 chunk 在下采样后的帧数
+        main_enc_frames = (chunk_size + 1) // 2
 
+        attn_cache = init_attn_cache(num_blocks, B, 0, d_model, feats.device)
         all_ctc_logits = []
         offset = 0
 
-        # 按 chunk 处理
         for start in range(0, T_full, chunk_size):
             end = min(T_full, start + chunk_size + right_context)
             chunk = feats[:, start:end, :]
+            is_last = (end >= T_full)
 
-            # 执行 forward_chunk
             chunk_out, attn_cache, _ = self.encoder.forward_chunk(
                 chunk, offset=offset, attn_cache=attn_cache
             )
             T_out = chunk_out.size(1)
-            offset += T_out
 
-            # CTC logits 取前 chunk 对应的部分（去掉 right_context 贡献）
-            ctc_logits = self.ctc_linear(chunk_out)  # (B, T_out, vocab)
+            if is_last:
+                # 末 chunk：取全部帧，offset 推进到结尾
+                ctc_logits = self.ctc_linear(chunk_out)
+                offset += T_out
+            else:
+                # 非末 chunk：只保留主 chunk 对应的帧，right_context 帧留给下一 chunk
+                valid = min(main_enc_frames, T_out)
+                ctc_logits = self.ctc_linear(chunk_out[:, :valid, :])
+                # offset 只前进主 chunk 帧数，使下一 chunk 位置编码连续正确
+                offset += valid
+
             all_ctc_logits.append(ctc_logits)
 
-            if end >= T_full:
+            if is_last:
                 break
 
-        # 合并所有 chunk 的 CTC logits
         ctc_logits_all = torch.cat(all_ctc_logits, dim=1)  # (B, T', vocab)
-        preds = ctc_logits_all.argmax(dim=-1)  # (B, T')
+        preds = ctc_logits_all.argmax(dim=-1)               # (B, T')
 
-        # 贪心解码 + 去重
         sos_eos_id = self.vocab_size - 1
         texts = []
         for b in range(B):
@@ -767,6 +800,13 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         Returns:
             results: [token_ids] 每句的 token 序列
+
+        Bug fix:
+          旧代码的 offset 每次增加 T_out（含 right_context），导致后续 chunk 的
+          位置编码起始点偏移过大。非末 chunk 的 offset 改为只前进
+          (chunk_size+1)//2（主 chunk 帧数）。
+          同时，对主 chunk 之外的 right_context 帧不执行 Transducer 解码，
+          避免同一编码帧被解码两次。
         """
         from model.streaming_helper import init_attn_cache
 
@@ -776,28 +816,35 @@ class ConformerCTCATTNTransducer(nn.Module):
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
         d_model = self.encoder.output_dim
-        max_cache_len = T_full // 2 + 32
-        attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
+        main_enc_frames = (chunk_size + 1) // 2
 
+        attn_cache = init_attn_cache(num_blocks, B, 0, d_model, feats.device)
         results = [[] for _ in range(B)]
         state = None
         y = torch.full((B, 1), sos_id, dtype=torch.long, device=feats.device)
-
         offset = 0
-        # 逐 chunk 处理编码器，每帧逐个用 transducer 解码
+
         for start in range(0, T_full, chunk_size):
             end = min(T_full, start + chunk_size + right_context)
             chunk = feats[:, start:end, :]
+            is_last = (end >= T_full)
 
             chunk_out, attn_cache, _ = self.encoder.forward_chunk(
                 chunk, offset=offset, attn_cache=attn_cache
             )
             T_out = chunk_out.size(1)
-            offset += T_out
 
-            # 对当前 chunk 内的每帧，执行 transducer 解码
+            if is_last:
+                decode_frames = T_out
+                offset += T_out
+            else:
+                # 只解码主 chunk 帧，right_context 帧交给下一 chunk 重新利用
+                decode_frames = min(main_enc_frames, T_out)
+                offset += decode_frames
+
+            # 对当前 chunk 主帧逐帧执行 Transducer 解码
             t = 0
-            while t < T_out:
+            while t < decode_frames:
                 if len(results[0]) >= max_len:
                     break
                 logits, state = self.trans_decoder.predict(
@@ -815,6 +862,8 @@ class ConformerCTCATTNTransducer(nn.Module):
                     y = torch.full((B, 1), tok, dtype=torch.long, device=feats.device)
 
             if len(results[0]) >= max_len:
+                break
+            if is_last:
                 break
 
         return results
