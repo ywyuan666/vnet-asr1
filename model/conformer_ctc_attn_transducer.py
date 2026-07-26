@@ -223,6 +223,9 @@ class ConformerEncoder(nn.Module):
         )
         # 用 mean pool 替代 Linear 瓶颈，避免 20x 压缩丢失信息
         self.output_dim = d_model
+        # 可学习频率权重：每个通道独立加权 20 个频率 bin
+        freq_dim = idim // 4  # 80 // 4 = 20
+        self.freq_weight = nn.Parameter(torch.ones(d_model, freq_dim) / freq_dim)
         self.pos_enc = PositionalEncoding(d_model)
         self.blocks = nn.ModuleList([
             ConformerBlock(d_model, n_head, d_ff, kernel_size, dropout)
@@ -246,7 +249,7 @@ class ConformerEncoder(nn.Module):
         x = x.unsqueeze(1)                     # [B, 1, T, idim]
         x = self.subsample(x)                  # [B, C, T/4, idim/4]
         B, C, Tt, Ff = x.shape
-        x = x.mean(dim=3)                        # [B, d_model, Tt] pool over frequency
+        x = (x * self.freq_weight[None, :, None, :]).sum(dim=3)  # [B, d_model, Tt]
         x = x.transpose(1, 2)                   # [B, Tt, d_model]
         x = self.pos_enc(x)
 
@@ -299,7 +302,7 @@ class ConformerEncoder(nn.Module):
         x = x.unsqueeze(1)                     # [B, 1, T, idim]
         x = self.subsample(x)                  # [B, C, T/4, idim/4]
         B, C, Tt, Ff = x.shape
-        x = x.mean(dim=3)                        # [B, d_model, Tt] pool over frequency
+        x = (x * self.freq_weight[None, :, None, :]).sum(dim=3)  # [B, d_model, Tt]
         x = x.transpose(1, 2)                   # [B, Tt, d_model]
         
         # Positional encoding (offset-aware for global position)
