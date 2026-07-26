@@ -556,7 +556,8 @@ class ConformerCTCATTNTransducer(nn.Module):
         ctc_log_probs = F.log_softmax(ctc_logits, dim=-1)
         # 去掉 attn_tokens_out 中的 padding (-1)
         ys_padded = attn_tokens_out.clamp(min=0)
-        ys_lens = (attn_tokens_out != -1).sum(dim=1).clamp(min=1)
+        # -1排除末尾sos/eos token, CTC不需要预测结束符
+        ys_lens = ((attn_tokens_out != -1).sum(dim=1) - 1).clamp(min=1)
         ctc_loss = F.ctc_loss(
             ctc_log_probs.transpose(0, 1),
             ys_padded,
