@@ -84,8 +84,7 @@ vnet-asr1/
 ├── recognize_ctc_attn_transducer.py  # 评测脚本
 ├── infer_demo_ctc_attn_transducer.py # 单条推理
 ├── local/                      # 数据处理
-│   ├── download_aishell.py     # AISHELL-1 下载
-│   ├── prepare_aishell.py      # AISHELL-1 准备
+│   ├── download_aishell.py     # AISHELL-1 下载与准备
 │   └── prepare_data.py         # 数据格式转换
 ├── tools/                      # 工具
 │   ├── make_cmvn.py            # CMVN 计算

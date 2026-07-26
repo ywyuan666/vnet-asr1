@@ -222,13 +222,21 @@ def run_training(config: dict, exp_base: str, device: str, epochs: int, batch_si
     stream_cer = None
     chunk_size = config.get("chunk_size", 0)
     if chunk_size and chunk_size > 0 and os.path.exists(final_ckpt):
-        stream_cmd = list(recog_cmd)  # copy
-        # Note: recognize_ctc_attn_transducer.py does not support --streaming natively;
-        # this is a placeholder. Real streaming eval requires model's forward_chunk.
+        stream_cmd = [
+            sys.executable, "recognize_ctc_attn_transducer.py",
+            "--checkpoint", final_ckpt,
+            "--test_data", cv_data,
+            "--dict", dict_path,
+            "--cmvn", cmvn_path,
+            "--device", device,
+            "--mode", "ctc_streaming",
+            "--chunk_size", str(chunk_size),
+            "--right_context", str(config.get("right_context", 4)),
+        ]
         stream_result = subprocess.run(stream_cmd, capture_output=True, text=True)
         stream_log = stream_result.stdout + stream_result.stderr
         for line in stream_log.split("\n"):
-            if "CER" in line:
+            if "CER =" in line:
                 try:
                     stream_cer = float(line.split("=")[-1].strip().replace("%", ""))
                 except (ValueError, IndexError):
