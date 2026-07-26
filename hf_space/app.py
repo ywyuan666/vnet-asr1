@@ -60,15 +60,24 @@ print(f"CMVN 加载完成: mean={cmvn_mean[:3].tolist()}..., std={cmvn_std[:3].t
 # ======================================================================
 # 加载模型
 # ======================================================================
-model = ConformerCTCATTNTransducer(
-    vocab_size=VOCAB_SIZE, idim=NUM_MEL_BINS,
-    d_model=144, n_head=4, d_ff=1024,
-    enc_blocks=6, attn_blocks=3,
-    pred_dim=144, pred_layers=1,
-).to(DEVICE)
-
 checkpoint = torch.load(MODEL_PATH, map_location=DEVICE, weights_only=False)
-model.load_state_dict(checkpoint["model_state"])
+config = checkpoint.get("config", {}) if isinstance(checkpoint, dict) else {}
+model = ConformerCTCATTNTransducer(
+    vocab_size=VOCAB_SIZE,
+    idim=NUM_MEL_BINS,
+    d_model=config.get("d_model", 144),
+    n_head=4,
+    d_ff=1024,
+    enc_blocks=config.get("enc_blocks", 6),
+    attn_blocks=3,
+    pred_dim=144,
+    pred_layers=1,
+    ctc_weight=config.get("ctc_weight", 0.3),
+    attn_weight=config.get("attn_weight", 0.3),
+    trans_weight=config.get("trans_weight", 0.4),
+).to(DEVICE)
+state_dict = checkpoint["model_state"] if isinstance(checkpoint, dict) and "model_state" in checkpoint else checkpoint
+model.load_state_dict(state_dict)
 model.eval()
 print(f"模型加载完成: {MODEL_PATH}")
 
@@ -186,12 +195,12 @@ def predict(audio, mode="attention"):
     try:
         if mode == "attention":
             token_ids = model.recognize_attention(
-                feats, max_len=20, sos_id=SOS_EOS_ID, eos_id=SOS_EOS_ID
+                feats, max_len=0, sos_id=SOS_EOS_ID, eos_id=SOS_EOS_ID
             )
             text = decode_attention(token_ids)[0]
         elif mode == "transducer":
             token_lists = model.recognize_transducer(
-                feats, max_len=50, sos_id=SOS_EOS_ID
+                feats, max_len=0, sos_id=SOS_EOS_ID
             )
             text = decode_transducer(token_lists)[0]
         elif mode == "ctc_greedy":

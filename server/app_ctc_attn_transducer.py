@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from model.conformer_ctc_attn_transducer import ConformerCTCATTNTransducer
+from recognize_ctc_attn_transducer import load_model_from_checkpoint, load_vocab
 
 # ---------------- 配置（环境变量覆盖，便于容器化） ----------------
 ROOT = Path(__file__).resolve().parent.parent
@@ -60,30 +60,12 @@ def load_model():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # 加载字典
-    vocab = {}
-    idx2token = {}
-    with open(DICT_PATH, encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) >= 2:
-                token, idx = parts[0], int(parts[1])
-                vocab[token] = idx
-                idx2token[idx] = token
+    vocab, idx2token = load_vocab(str(DICT_PATH))
     vocab_size = len(vocab)
     sos_id = vocab_size - 1
 
     # 加载 checkpoint
-    ckpt = torch.load(CHECKPOINT, map_location=device)
-    d_model = 144
-    if "config" in ckpt:
-        d_model = ckpt["config"].get("d_model", 144)
-
-    model = ConformerCTCATTNTransducer(vocab_size=vocab_size, d_model=d_model).to(device)
-    if "model_state" in ckpt:
-        model.load_state_dict(ckpt["model_state"])
-    else:
-        model.load_state_dict(ckpt)
-    model.eval()
+    model, _ = load_model_from_checkpoint(str(CHECKPOINT), vocab_size, device)
 
     _model = model
     _vocab = vocab
@@ -209,7 +191,7 @@ async def api_recognize(
             hyps = model.recognize_ctc_greedy(feats, idx2token)
             result = hyps[0]
         elif mode == "attention":
-            ys = model.recognize_attention(feats, max_len=20, sos_id=sos_id, eos_id=sos_id)
+            ys = model.recognize_attention(feats, max_len=0, sos_id=sos_id, eos_id=sos_id)
             tokens = []
             for t in range(1, ys.size(1)):
                 tok = ys[0, t].item()
@@ -218,7 +200,7 @@ async def api_recognize(
                 tokens.append(idx2token.get(tok, ""))
             result = "".join(tokens)
         elif mode == "transducer":
-            results = model.recognize_transducer(feats, max_len=20, sos_id=sos_id)
+            results = model.recognize_transducer(feats, max_len=0, sos_id=sos_id)
             result = "".join(idx2token.get(t, "") for t in results[0])
         else:
             raise HTTPException(status_code=400, detail=f"不支持的解码模式: {mode}")
