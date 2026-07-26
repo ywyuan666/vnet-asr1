@@ -213,19 +213,17 @@ class ConformerEncoder(nn.Module):
                  num_blocks=6, dropout=0.1, kernel_size=15,
                  chunk_size=0, right_context=0, streaming_prob=0.5):
         super().__init__()
-        # Conv2d 前端：时间2x + 频率4x 下采样
-        # stride1=(2,2) → T/2, F/2；stride2=(1,2) → T不变, F/4
+        # Conv2d 前端：时间 2x 下采样，频率全保留（80维）
+        # 真实语音频谱复杂，不能压缩频率维
         self.subsample = nn.Sequential(
-            nn.Conv2d(1, d_model, 3, 2, padding=1),          # (T,F)→(T/2,40)
+            nn.Conv2d(1, d_model, (3, 3), (2, 1), (1, 1)),   # T/2, F=80
             nn.ReLU(),
-            nn.Conv2d(d_model, d_model, 3, (1, 2), padding=1), # (T/2,40)→(T/2,20)
+            nn.Conv2d(d_model, d_model, (3, 3), (1, 1), (1, 1)), # T/2, F=80
             nn.ReLU(),
         )
-        # 用 mean pool 替代 Linear 瓶颈，避免 20x 压缩丢失信息
         self.output_dim = d_model
-        # 可学习频率权重：每个通道独立加权 20 个频率 bin
-        freq_dim = idim // 4  # 80 // 4 = 20
-        self.freq_weight = nn.Parameter(torch.ones(d_model, freq_dim) / freq_dim)
+        # 可学习频率权重：每个通道独立加权 80 个频率 bin
+        self.freq_weight = nn.Parameter(torch.ones(d_model, idim) / idim)
         self.pos_enc = PositionalEncoding(d_model)
         self.blocks = nn.ModuleList([
             ConformerBlock(d_model, n_head, d_ff, kernel_size, dropout)
