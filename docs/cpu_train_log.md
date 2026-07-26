@@ -8,3 +8,4 @@ Epoch 4/30: train=6.79 cv=7.53 | 95min
 Epoch 5/30: train=6.79 cv=7.00 | 117min BEST
 Epoch 6/30: train=6.79 cv=7.11 | 138min 
 Epoch 7/30: train=6.79 cv=7.24 | 160min 
+Epoch 8/30: train=6.80 cv=7.10 | 182min 
