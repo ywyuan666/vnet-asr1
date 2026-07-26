@@ -22,6 +22,7 @@ from model.conformer_ctc_attn_transducer import (
     AttentionDecoder,
     TransducerDecoder,
     ConformerCTCATTNTransducer,
+    MultiHeadSelfAttention,
     PositionalEncoding,
 )
 
@@ -91,6 +92,19 @@ class TestConformerBlock:
         assert x.grad is not None
         assert not torch.all(x.grad == 0)
 
+    def test_float_additive_mask_matches_bool_mask(self):
+        """Streaming masks may be additive (0/-inf); they should match bool keep masks."""
+        attn = MultiHeadSelfAttention(d_model=64, n_head=4, dropout=0.0)
+        x = torch.randn(1, 6, 64)
+        bool_mask = torch.tril(torch.ones(6, 6, dtype=torch.bool))
+        additive_mask = torch.zeros(6, 6)
+        additive_mask = additive_mask.masked_fill(~bool_mask, -float("inf"))
+
+        out_bool = attn(x, bool_mask)
+        out_add = attn(x, additive_mask)
+
+        assert torch.allclose(out_bool, out_add, atol=1e-5)
+
 
 class TestConformerEncoder:
     """Test the Conformer encoder."""
@@ -133,6 +147,13 @@ class TestConformerEncoder:
 
         # Both should run without error
         assert out_normal.shape == out_streaming.shape
+
+    def test_output_lengths(self, encoder):
+        """Train/eval paths should agree on the encoder's 2x time reduction."""
+        lengths = torch.tensor([1, 2, 3, 4, 5, 40])
+        expected = torch.tensor([1, 1, 2, 2, 3, 20])
+
+        assert torch.equal(encoder.output_lengths(lengths), expected)
 
 
 class TestAttentionDecoder:

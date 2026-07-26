@@ -388,6 +388,10 @@ def main():
         print(f"流式训练已启用: chunk_size={args.chunk_size}, "
               f"right_context={args.right_context}, "
               f"streaming_prob={args.streaming_prob}")
+    if args.trans_weight > 0 and not hasattr(torchaudio.functional, "rnnt_loss"):
+        raise RuntimeError(
+            "当前 torchaudio 不提供 rnnt_loss；请安装支持 RNNT 的 torchaudio，或把 --trans_weight 设为 0。"
+        )
 
     n_params = sum(p.numel() for p in model.parameters())
     print(f"模型参数量: {n_params:,}")
@@ -440,7 +444,7 @@ def main():
 
     # 保存 final.pt（最后一个 epoch）
     final_path = os.path.join(args.model_dir, "final.pt")
-    torch.save(torch.load(ckpt_path), final_path)
+    torch.save(ckpt, final_path)
     print(f"\n训练完成！最终模型: {final_path}")
 
 

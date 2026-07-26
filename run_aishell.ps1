@@ -13,7 +13,8 @@ param(
     [string]$Device = "cpu",
     [int]$MaxEpoch = 60,
     [int]$BatchSize = 32,
-    [int]$DModel = 144
+    [int]$DModel = 144,
+    [double]$TransWeight = 0.0
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,7 +55,8 @@ if ($Stage -le 2 -and $Stop -ge 2) {
         --batch_size $BatchSize `
         --max_epoch $MaxEpoch `
         --device $Device `
-        --d_model $DModel
+        --d_model $DModel `
+        --trans_weight $TransWeight
 }
 
 # -------- Stage 3: Decode evaluation --------
@@ -65,13 +67,19 @@ if ($Stage -le 3 -and $Stop -ge 3) {
     if (-not (Test-Path $ckpt)) {
         Write-Host "  [WARN] No checkpoint found, skip decoding" -ForegroundColor Yellow
     } else {
-        python recognize_ctc_attn_transducer.py `
-            --checkpoint $ckpt `
-            --test_data "$DataDir/test/data.list" `
-            --dict $Dict `
-            --cmvn $Cmvn `
-            --device $Device `
-            --mode all
+        $decodeModes = @("ctc_greedy", "attention")
+        if ($TransWeight -gt 0) {
+            $decodeModes += "transducer"
+        }
+        foreach ($mode in $decodeModes) {
+            python recognize_ctc_attn_transducer.py `
+                --checkpoint $ckpt `
+                --test_data "$DataDir/test/data.list" `
+                --dict $Dict `
+                --cmvn $Cmvn `
+                --device $Device `
+                --mode $mode
+        }
     }
 }
 
@@ -89,9 +97,9 @@ if ($Stage -le 4 -and $Stop -ge 4) {
             --dict $Dict `
             --cmvn $Cmvn `
             --device $Device `
-            --mode attention `
-            --streaming `
-            --chunk_size 16
+            --mode ctc_streaming `
+            --chunk_size 16 `
+            --right_context 4
     }
 }
 
@@ -108,7 +116,8 @@ if ($Stage -le 5 -and $Stop -ge 5) {
     Write-Host "---------------|-------------|------------------" -ForegroundColor Green
     Write-Host "CTC Greedy     |             | Fastest, no LM" -ForegroundColor Green
     Write-Host "Attention      |             | Standard AR dec." -ForegroundColor Green
-    Write-Host "Transducer     |             | Streaming friendly" -ForegroundColor Green
+    $transducerNote = if ($TransWeight -gt 0) { "Streaming friendly" } else { "Skipped (trans_weight=0)" }
+    Write-Host "Transducer     |             | $transducerNote" -ForegroundColor Green
     Write-Host "" -ForegroundColor Green
     Write-Host "Fill CER values after Stage 3 completes." -ForegroundColor Green
     Write-Host "Streaming chunk_size=16, right_context=4" -ForegroundColor Green

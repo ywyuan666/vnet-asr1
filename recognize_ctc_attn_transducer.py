@@ -41,6 +41,51 @@ def load_cmvn(cmvn_path):
     return None, None
 
 
+def load_vocab(dict_path):
+    vocab = {}
+    idx2token = {}
+    with open(dict_path, encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                token, idx = parts[0], int(parts[1])
+                vocab[token] = idx
+                idx2token[idx] = token
+    return vocab, idx2token
+
+
+def load_model_from_checkpoint(checkpoint_path, vocab_size, device):
+    ckpt = torch.load(checkpoint_path, map_location=device)
+    config = ckpt.get("config", {}) if isinstance(ckpt, dict) else {}
+    model = ConformerCTCATTNTransducer(
+        vocab_size=vocab_size,
+        d_model=config.get("d_model", 144),
+        enc_blocks=config.get("enc_blocks", 6),
+        ctc_weight=config.get("ctc_weight", 0.3),
+        attn_weight=config.get("attn_weight", 0.3),
+        trans_weight=config.get("trans_weight", 0.4),
+        chunk_size=config.get("chunk_size", 0),
+        right_context=config.get("right_context", 0),
+        streaming_prob=config.get("streaming_prob", 0.5),
+    ).to(device)
+    state_dict = ckpt["model_state"] if isinstance(ckpt, dict) and "model_state" in ckpt else ckpt
+    model.load_state_dict(state_dict)
+    model.eval()
+    return model, config
+
+
+def resolve_modes(mode, streaming):
+    if not streaming:
+        return ["ctc_greedy", "attention", "transducer"] if mode == "all" else [mode]
+    if mode == "all":
+        return ["ctc_streaming", "transducer_streaming"]
+    if mode in ("ctc_greedy", "ctc_streaming"):
+        return ["ctc_streaming"]
+    if mode in ("transducer", "transducer_streaming"):
+        return ["transducer_streaming"]
+    raise ValueError("--streaming 不支持 attention 模式；请改用 ctc_streaming/transducer_streaming，或去掉 --streaming。")
+
+
 def extract_fbank(wav_path, cmvn_mean=None, cmvn_var=None):
     """提取 Fbank 特征（用 soundfile 避免 ffmpeg 依赖）"""
     import soundfile as sf
@@ -90,25 +135,19 @@ def main():
                         choices=["ctc_greedy", "attention", "transducer", "all",
                                  "ctc_streaming", "transducer_streaming"])
     parser.add_argument("--streaming", action="store_true",
-                        help="启用流式解码（等价于 ctc_streaming mode）")
+                        help="启用流式解码；会把 ctc_greedy/transducer 映射到对应的 streaming 模式")
     parser.add_argument("--chunk_size", type=int, default=16,
-                        help="流式解码的 chunk size")
+                        help="流式解码的 chunk size（原始特征帧）")
     parser.add_argument("--right_context", type=int, default=4,
-                        help="流式解码的右侧上下文帧数")
+                        help="流式解码的右侧上下文帧数（原始特征帧）")
+    parser.add_argument("--max_len", type=int, default=0,
+                        help="Attention/Transducer 最大输出长度；0 表示按编码器长度自动推断")
     args = parser.parse_args()
 
     device = torch.device(args.device)
 
     # 加载字典
-    vocab = {}
-    idx2token = {}
-    with open(args.dict, encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split()
-            if len(parts) >= 2:
-                token, idx = parts[0], int(parts[1])
-                vocab[token] = idx
-                idx2token[idx] = token
+    vocab, idx2token = load_vocab(args.dict)
     vocab_size = len(vocab)
     sos_id = vocab_size - 1
     eos_id = vocab_size - 1
@@ -118,19 +157,8 @@ def main():
     # 加载 CMVN
     cmvn_mean, cmvn_var = load_cmvn(args.cmvn)
 
-    # 加载模型（从 checkpoint 配置中读取 d_model）
-    ckpt = torch.load(args.checkpoint, map_location=device)
-    if "config" in ckpt:
-        d_model = ckpt["config"].get("d_model", 144)
-    else:
-        d_model = 144
-    model = ConformerCTCATTNTransducer(vocab_size=vocab_size, d_model=d_model).to(device)
-    if "model_state" in ckpt:
-        model.load_state_dict(ckpt["model_state"])
-    else:
-        model.load_state_dict(ckpt)
-    model.eval()
-    print(f"模型加载成功: {args.checkpoint} (d_model={d_model})")
+    model, model_config = load_model_from_checkpoint(args.checkpoint, vocab_size, device)
+    print(f"模型加载成功: {args.checkpoint} (d_model={model_config.get('d_model', 144)})")
 
     # 读取测试数据
     test_items = []
@@ -142,15 +170,7 @@ def main():
     print(f"测试集: {len(test_items)} 条\n")
 
     # 确定要测试的模式
-    modes = []
-    if args.mode == "all":
-        modes = ["ctc_greedy", "attention", "transducer"]
-    else:
-        modes = [args.mode]
-
-    # 如果 --streaming 标志启用，添加流式模式
-    if args.streaming:
-        modes = ["ctc_streaming"]
+    modes = resolve_modes(args.mode, args.streaming)
 
     for mode in modes:
         total_err, total_ref = 0, 0
@@ -171,7 +191,7 @@ def main():
                 hyps = model.recognize_ctc_greedy(feats, idx2token)
                 hyp_text = hyps[0]
             elif mode == "attention":
-                ys = model.recognize_attention(feats, max_len=20, sos_id=sos_id, eos_id=eos_id)
+                ys = model.recognize_attention(feats, max_len=args.max_len, sos_id=sos_id, eos_id=eos_id)
                 tokens = []
                 for t in range(1, ys.size(1)):
                     tok = ys[0, t].item()
@@ -180,7 +200,7 @@ def main():
                     tokens.append(idx2token.get(tok, ""))
                 hyp_text = "".join(tokens)
             elif mode == "transducer":
-                results = model.recognize_transducer(feats, max_len=20, sos_id=sos_id)
+                results = model.recognize_transducer(feats, max_len=args.max_len, sos_id=sos_id)
                 hyp_text = "".join(idx2token.get(t, "") for t in results[0])
             elif mode == "ctc_streaming":
                 hyps = model.recognize_ctc_streaming(
@@ -194,7 +214,7 @@ def main():
                     feats,
                     chunk_size=args.chunk_size,
                     right_context=args.right_context,
-                    max_len=20, sos_id=sos_id,
+                    max_len=args.max_len, sos_id=sos_id,
                 )
                 hyp_text = "".join(idx2token.get(t, "") for t in results[0])
             else:

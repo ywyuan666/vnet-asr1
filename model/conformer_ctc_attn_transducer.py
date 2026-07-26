@@ -24,6 +24,17 @@ import torchaudio
 # 通用组件
 # ======================================================================
 
+
+def _apply_attention_mask(scores, mask):
+    """Support keep masks (bool / 0-1) and additive masks (0 / -inf)."""
+    if mask.dtype == torch.bool:
+        return scores.masked_fill(~mask, float("-inf"))
+    if torch.is_floating_point(mask):
+        if torch.isinf(mask).any() or (mask < 0).any():
+            return scores + mask
+        return scores.masked_fill(mask == 0, float("-inf"))
+    return scores.masked_fill(mask == 0, float("-inf"))
+
 class Swish(nn.Module):
     def forward(self, x):
         return x * torch.sigmoid(x)
@@ -79,7 +90,7 @@ class MultiHeadSelfAttention(nn.Module):
         v_all = v.view(B, -1, self.h, self.d_k).transpose(1, 2)
         scores = torch.matmul(q, k_all.transpose(-2, -1)) / math.sqrt(self.d_k)
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, float("-inf"))
+            scores = _apply_attention_mask(scores, mask)
         attn = self.dropout(F.softmax(scores, dim=-1))
         out = torch.matmul(attn, v_all).transpose(1, 2).contiguous().view(B, T, D)
         out = self.out(out)
@@ -112,7 +123,7 @@ class MultiHeadCrossAttention(nn.Module):
         v = self.w_v(value).view(Bk, Tk, self.h, self.d_k).transpose(1, 2)
         scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, float("-inf"))
+            scores = _apply_attention_mask(scores, mask)
         attn = self.dropout(F.softmax(scores, dim=-1))
         out = torch.matmul(attn, v).transpose(1, 2).contiguous().view(Bq, Tq, D)
         return self.out(out)
@@ -179,8 +190,8 @@ class ConformerBlock(nn.Module):
         # Convert 3D (B, 1, T) padding mask → 4D (B, 1, T, T) attention mask
         if effective_mask is not None and effective_mask.dim() == 3:
             # effective_mask has True = padding; for attention we want True = keep
-            keep = (effective_mask == 0).float()  # (B, 1, T), 1 where valid
-            effective_mask = keep.unsqueeze(-1) * keep.unsqueeze(-2)  # (B, 1, T, T)
+            keep = effective_mask == 0  # (B, 1, T), True where valid
+            effective_mask = keep.unsqueeze(-1) & keep.unsqueeze(-2)  # (B, 1, T, T)
         if attn_cache is not None:
             attn_out, new_attn_cache = self.attn(attn_input, effective_mask, attn_cache)
         else:
@@ -204,7 +215,7 @@ class ConformerBlock(nn.Module):
 class ConformerEncoder(nn.Module):
     """
     Conformer 编码器
-    - 前端：2 层 Conv2d 时间维下采样 4 倍
+    - 前端：2 层 Conv2d 时间维下采样 2 倍
     - 主体：N 个 ConformerBlock
     - 支持流式：chunk_size > 0 时启用
     """
@@ -222,6 +233,7 @@ class ConformerEncoder(nn.Module):
             nn.ReLU(),
         )
         self.output_dim = d_model
+        self.time_downsample_factor = 2
         # 可学习频率权重：每个通道独立加权 80 个频率 bin
         self.freq_weight = nn.Parameter(torch.ones(d_model, idim) / idim)
         self.pos_enc = PositionalEncoding(d_model)
@@ -234,6 +246,16 @@ class ConformerEncoder(nn.Module):
         self.chunk_size = chunk_size       # 0 = non-streaming
         self.right_context = right_context
         self.streaming_prob = streaming_prob
+
+    def output_lengths(self, lengths: torch.Tensor) -> torch.Tensor:
+        """Map input frame counts to encoder frame counts."""
+        return (lengths + self.time_downsample_factor - 1) // self.time_downsample_factor
+
+    def output_length_from_input_frames(self, num_frames: int) -> int:
+        """Scalar version of output_lengths for chunk-wise streaming code."""
+        if num_frames <= 0:
+            return 0
+        return int((num_frames + self.time_downsample_factor - 1) // self.time_downsample_factor)
 
     def forward(self, x, mask=None, is_streaming=None, chunk_size=None, right_context=None):
         """
@@ -256,6 +278,8 @@ class ConformerEncoder(nn.Module):
             cs = chunk_size if chunk_size is not None else self.chunk_size
             rc = right_context if right_context is not None else self.right_context
             if cs > 0:
+                cs = self.output_length_from_input_frames(cs)
+                rc = self.output_length_from_input_frames(rc)
                 # 从 streaming_helper 导入
                 from .streaming_helper import make_chunk_mask
                 attn_mask = make_chunk_mask(
@@ -547,7 +571,7 @@ class ConformerCTCATTNTransducer(nn.Module):
                                    chunk_size=chunk_size, right_context=right_context)
         # [B, T', D]
         T_enc = encoder_out.size(1)
-        enc_lens = (feat_lens + 1) // 2  # 下采样 2x
+        enc_lens = self.encoder.output_lengths(feat_lens).clamp(min=1, max=T_enc)
 
         # --- CTC Loss ---
         ctc_logits = self.ctc_linear(encoder_out)  # [B, T', V]
@@ -559,7 +583,7 @@ class ConformerCTCATTNTransducer(nn.Module):
         ctc_loss = F.ctc_loss(
             ctc_log_probs.transpose(0, 1),
             ys_padded,
-            enc_lens.clamp(min=1, max=T_enc),
+            enc_lens,
             ys_lens,
             blank=0,
             zero_infinity=True,
@@ -580,7 +604,7 @@ class ConformerCTCATTNTransducer(nn.Module):
                 encoder_out, trans_tokens, trans_token_lens
             )
             trans_targets = trans_tokens[:, 1:].int()
-            trans_logit_lengths = enc_lens.clamp(min=1, max=T_enc).int()
+            trans_logit_lengths = enc_lens.int()
             trans_target_lengths = (trans_token_lens - 1).clamp(min=1, max=trans_tokens.size(1) - 1).int()
             if trans_targets.size(1) > 0 and trans_logits.size(2) > 0:
                 transducer_loss = torchaudio.functional.rnnt_loss(
@@ -610,6 +634,27 @@ class ConformerCTCATTNTransducer(nn.Module):
             "transducer_loss": transducer_loss.detach(),
         }
 
+    def _resolve_decode_max_len(self, encoder_out, max_len):
+        if max_len is None or max_len <= 0:
+            return max(1, encoder_out.size(1))
+        return max_len
+
+    def _trim_streaming_attn_cache(self, prev_attn_cache, new_attn_cache, keep_frames):
+        trimmed_cache = []
+        for i, cache in enumerate(new_attn_cache):
+            if cache is None:
+                trimmed_cache.append(None)
+                continue
+            k, v = cache
+            prev_len = 0
+            if prev_attn_cache is not None and i < len(prev_attn_cache):
+                prev_cache = prev_attn_cache[i]
+                if prev_cache is not None:
+                    prev_len = prev_cache[0].size(1)
+            total_keep = prev_len + keep_frames
+            trimmed_cache.append((k[:, :total_keep, :], v[:, :total_keep, :]))
+        return trimmed_cache
+
     @torch.no_grad()
     def recognize_ctc_greedy(self, feats, idx2token):
         """CTC 贪心解码（过滤 blank=0 和 sos/eos）"""
@@ -630,13 +675,14 @@ class ConformerCTCATTNTransducer(nn.Module):
         return texts
 
     @torch.no_grad()
-    def recognize_attention(self, feats, max_len=20, sos_id=-1, eos_id=-1):
+    def recognize_attention(self, feats, max_len=None, sos_id=-1, eos_id=-1):
         """Attention 自回归解码"""
         if sos_id < 0:
             sos_id = self.vocab_size - 1
         if eos_id < 0:
             eos_id = self.vocab_size - 1
         encoder_out = self.encoder(feats)
+        max_len = self._resolve_decode_max_len(encoder_out, max_len)
         B = encoder_out.size(0)
         ys = torch.full((B, 1), sos_id, dtype=torch.long, device=feats.device)
         ended = [False] * B
@@ -652,21 +698,23 @@ class ConformerCTCATTNTransducer(nn.Module):
         return ys  # [B, L+1]
 
     @torch.no_grad()
-    def recognize_transducer(self, feats, max_len=50, sos_id=-1):
+    def recognize_transducer(self, feats, max_len=None, sos_id=-1):
         """Transducer 贪心解码（blank 跳过，非 blank 发射）"""
         if sos_id < 0:
             sos_id = self.vocab_size - 1
         encoder_out = self.encoder(feats)  # [B, T_enc, D]
         B, T_enc, D = encoder_out.shape
+        max_len = self._resolve_decode_max_len(encoder_out, max_len)
         results = [[] for _ in range(B)]
         state = None
         # decoder input token starts with <sos>
         y = torch.full((B, 1), sos_id, dtype=torch.long, device=feats.device)
         t = 0  # encoder frame index
+        steps = 0
+        max_steps = max_len + T_enc * 4
 
-        for _ in range(max_len * 2):
-            if t >= T_enc:
-                break
+        while t < T_enc and len(results[0]) < max_len and steps < max_steps:
+            steps += 1
             # Predict using current encoder frame
             logits, state = self.trans_decoder.predict(
                 encoder_out[:, t:t+1, :], y, state
@@ -703,13 +751,18 @@ class ConformerCTCATTNTransducer(nn.Module):
         """
         from model.streaming_helper import init_attn_cache
 
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0 for streaming decoding")
+        if right_context < 0:
+            raise ValueError("right_context must be >= 0 for streaming decoding")
+
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
         d_model = self.encoder.output_dim
 
         # 初始化 KV cache
         # cache 的最大长度设为按 chunk 数估计
-        max_cache_len = T_full // 2 + 32
+        max_cache_len = self.encoder.output_length_from_input_frames(T_full) + 32
         attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
 
         all_ctc_logits = []
@@ -717,19 +770,25 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         # 按 chunk 处理
         for start in range(0, T_full, chunk_size):
-            end = min(T_full, start + chunk_size + right_context)
+            primary_input_frames = min(chunk_size, T_full - start)
+            keep_out = self.encoder.output_length_from_input_frames(primary_input_frames)
+            end = min(T_full, start + primary_input_frames + right_context)
             chunk = feats[:, start:end, :]
 
             # 执行 forward_chunk
+            prev_attn_cache = attn_cache
             chunk_out, attn_cache, _ = self.encoder.forward_chunk(
                 chunk, offset=offset, attn_cache=attn_cache
             )
-            T_out = chunk_out.size(1)
-            offset += T_out
+            keep_out = min(keep_out, chunk_out.size(1))
+            if end >= T_full:
+                keep_out = chunk_out.size(1)
+            attn_cache = self._trim_streaming_attn_cache(prev_attn_cache, attn_cache, keep_out)
+            offset += keep_out
 
             # CTC logits 取前 chunk 对应的部分（去掉 right_context 贡献）
             ctc_logits = self.ctc_linear(chunk_out)  # (B, T_out, vocab)
-            all_ctc_logits.append(ctc_logits)
+            all_ctc_logits.append(ctc_logits[:, :keep_out, :])
 
             if end >= T_full:
                 break
@@ -754,7 +813,7 @@ class ConformerCTCATTNTransducer(nn.Module):
 
     @torch.no_grad()
     def recognize_transducer_streaming(self, feats, chunk_size=16,
-                                        right_context=4, max_len=50, sos_id=-1):
+                                        right_context=4, max_len=None, sos_id=-1):
         """
         流式 Transducer 解码：逐 chunk 处理编码器，输出 token 序列。
 
@@ -772,12 +831,18 @@ class ConformerCTCATTNTransducer(nn.Module):
 
         if sos_id < 0:
             sos_id = self.vocab_size - 1
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be > 0 for streaming decoding")
+        if right_context < 0:
+            raise ValueError("right_context must be >= 0 for streaming decoding")
 
         B, T_full, _ = feats.shape
         num_blocks = len(self.encoder.blocks)
         d_model = self.encoder.output_dim
-        max_cache_len = T_full // 2 + 32
+        max_cache_len = self.encoder.output_length_from_input_frames(T_full) + 32
         attn_cache = init_attn_cache(num_blocks, B, max_cache_len, d_model, feats.device)
+        if max_len is None or max_len <= 0:
+            max_len = self.encoder.output_length_from_input_frames(T_full)
 
         results = [[] for _ in range(B)]
         state = None
@@ -786,18 +851,24 @@ class ConformerCTCATTNTransducer(nn.Module):
         offset = 0
         # 逐 chunk 处理编码器，每帧逐个用 transducer 解码
         for start in range(0, T_full, chunk_size):
-            end = min(T_full, start + chunk_size + right_context)
+            primary_input_frames = min(chunk_size, T_full - start)
+            keep_out = self.encoder.output_length_from_input_frames(primary_input_frames)
+            end = min(T_full, start + primary_input_frames + right_context)
             chunk = feats[:, start:end, :]
 
+            prev_attn_cache = attn_cache
             chunk_out, attn_cache, _ = self.encoder.forward_chunk(
                 chunk, offset=offset, attn_cache=attn_cache
             )
-            T_out = chunk_out.size(1)
-            offset += T_out
+            keep_out = min(keep_out, chunk_out.size(1))
+            if end >= T_full:
+                keep_out = chunk_out.size(1)
+            attn_cache = self._trim_streaming_attn_cache(prev_attn_cache, attn_cache, keep_out)
+            offset += keep_out
 
             # 对当前 chunk 内的每帧，执行 transducer 解码
             t = 0
-            while t < T_out:
+            while t < keep_out:
                 if len(results[0]) >= max_len:
                     break
                 logits, state = self.trans_decoder.predict(
