@@ -25,6 +25,8 @@ pip install -r requirements_ctc_attn_transducer.txt
 .\run_aishell.ps1 -Device cuda -MaxEpoch 60
 ```
 
+> `run_aishell.ps1` 默认使用 `-TransWeight 0`，先跑稳定的 CTC/Attention 基线；只有在你确认 RNNT 环境和显存都足够时，再显式传 `-TransWeight 0.4` 启用 Transducer 训练。
+
 ## 流式推理
 
 ```bash

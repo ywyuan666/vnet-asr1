@@ -61,7 +61,19 @@ class TestAsrDataset:
 
         # Create dictionary
         with open(self.dict_path, "w", encoding="utf-8") as f:
-            f.write("<blank>\n<unk>\n你好世界\n测试语音\n<sos/eos>\n")
+            f.write(
+                "<blank> 0\n"
+                "<unk> 1\n"
+                "你 2\n"
+                "好 3\n"
+                "世 4\n"
+                "界 5\n"
+                "测 6\n"
+                "试 7\n"
+                "语 8\n"
+                "音 9\n"
+                "<sos/eos> 10\n"
+            )
 
         # Create data
         self.records = create_dummy_data_list(self.data_list_path, 5, self.wav_dir)
@@ -101,6 +113,7 @@ class TestAsrDataset:
                 if len(parts) >= 2:
                     vocab[parts[0]] = int(parts[1])
         sos_id = len(vocab) - 1
+        assert vocab["<sos/eos>"] == sos_id
 
         dataset = AsrDataset(self.data_list_path, cmvn_path=None)
         batch_data = [dataset[i] for i in range(2)]
