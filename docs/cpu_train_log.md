@@ -17,3 +17,4 @@ Epoch 13/30: train=6.82 cv=7.06 | 296min
 Epoch 14/30: train=6.82 cv=7.02 | 317min 
 Epoch 1/30: train=8.11 cv=8.31 | 27min BEST
 Epoch 2/30: train=6.91 cv=8.45 | 54min 
+Epoch 3/30: train=6.91 cv=7.85 | 81min BEST
