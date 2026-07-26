@@ -548,17 +548,20 @@ class ConformerCTCATTNTransducer(nn.Module):
         T_raw = feats.size(1)
         enc_lens = (feat_lens + 1) // 2  # 下采样 2x（与 Conv2d stride=2 公式一致）
         T_enc_expected = (T_raw + 1) // 2
-        # 掩码：True 表示 padding（需要屏蔽），shape (B, 1, T_enc_expected)
+        # 先用预估长度构建掩码；True 表示 padding（需要屏蔽），shape (B, 1, T_enc_expected)
         pad_mask = (
             torch.arange(T_enc_expected, device=feats.device)
             .unsqueeze(0)
-            .ge(enc_lens.unsqueeze(1))   # >= enc_lens → padding
-            .unsqueeze(1)               # (B, 1, T_enc)
+            .ge(enc_lens.unsqueeze(1))
+            .unsqueeze(1)
         )
         encoder_out = self.encoder(feats, mask=pad_mask, is_streaming=is_streaming,
                                    chunk_size=chunk_size, right_context=right_context)
         # [B, T', D]
         T_enc = encoder_out.size(1)
+        # 若实际 T_enc 与预估不同（边界情况），将掩码截断/扩展以保持一致
+        if T_enc != T_enc_expected:
+            enc_lens = enc_lens.clamp(max=T_enc)
 
         # --- CTC Loss ---
         ctc_logits = self.ctc_linear(encoder_out)  # [B, T', V]
@@ -665,7 +668,10 @@ class ConformerCTCATTNTransducer(nn.Module):
 
     @torch.no_grad()
     def recognize_transducer(self, feats, max_len=50, sos_id=-1):
-        """Transducer 贪心解码（blank 跳过，非 blank 发射）
+        """Transducer 贪心解码（blank 跳过，非 blank 发射）。
+
+        注意：当前实现假定 batch size = 1，仅对 results[0] 进行解码。
+        多 batch 推理请逐条调用本函数。
 
         Bug fix: 原先用 range(max_len * 2) 限制迭代次数，对于 AISHELL-1
         典型句子 T_enc ≈ 100-200 帧，仅 40 次迭代（max_len=20 时）会提前结束，
@@ -692,9 +698,8 @@ class ConformerCTCATTNTransducer(nn.Module):
             logits, state = self.trans_decoder.predict(
                 encoder_out[:, t:t+1, :], y, state
             )
-            # argmax over vocab
-            next_tok = logits[:, 0, :].argmax(dim=-1)  # [B]
-            tok = next_tok[0].item()
+            # argmax over vocab (only reads batch item 0, see docstring)
+            tok = logits[0, 0, :].argmax(dim=-1).item()
 
             if tok == 0:  # blank -> move to next encoder frame
                 t += 1
@@ -791,8 +796,11 @@ class ConformerCTCATTNTransducer(nn.Module):
         """
         流式 Transducer 解码：逐 chunk 处理编码器，输出 token 序列。
 
+        注意：当前实现假定 batch size = 1，仅对 results[0] 进行解码。
+        多 batch 推理请逐条调用本函数。
+
         Args:
-            feats: (B, T, idim) Fbank 特征
+            feats: (B, T, idim) Fbank 特征（B 应为 1）
             chunk_size: 每 chunk 帧数
             right_context: 每 chunk 右侧上下文帧数
             max_len: 最大输出长度
@@ -842,7 +850,7 @@ class ConformerCTCATTNTransducer(nn.Module):
                 decode_frames = min(main_enc_frames, T_out)
                 offset += decode_frames
 
-            # 对当前 chunk 主帧逐帧执行 Transducer 解码
+            # 对当前 chunk 主帧逐帧执行 Transducer 解码（batch size = 1，见 docstring）
             t = 0
             while t < decode_frames:
                 if len(results[0]) >= max_len:
@@ -850,8 +858,7 @@ class ConformerCTCATTNTransducer(nn.Module):
                 logits, state = self.trans_decoder.predict(
                     chunk_out[:, t:t+1, :], y, state
                 )
-                next_tok = logits[:, 0, :].argmax(dim=-1)
-                tok = next_tok[0].item()
+                tok = logits[0, 0, :].argmax(dim=-1).item()
 
                 if tok == 0:  # blank -> move to next encoder frame
                     t += 1
